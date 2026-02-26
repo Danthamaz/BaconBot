@@ -1,18 +1,16 @@
 /**
  * /parse  —  Upload an EQ log file and extract raid data.
  *
- * Supports two input modes:
- *   1. Discord file attachment  (max ~8 MB — good for trimmed logs)
- *   2. Local file path string   (no size limit — ideal for the full 180 MB log
- *                                when the bot is running on the same machine)
+ * Input: Discord file attachment (25 MB limit).
+ * For large logs, trim to the relevant session first — see /help for instructions.
  */
 
 'use strict';
 
 const { SlashCommandBuilder } = require('discord.js');
-const fs   = require('fs');
-const path = require('path');
-const os   = require('os');
+const fs    = require('fs');
+const path  = require('path');
+const os    = require('os');
 const https = require('https');
 const http  = require('http');
 
@@ -93,10 +91,8 @@ module.exports = {
        .setRequired(true))
     .addAttachmentOption(o =>
       o.setName('logfile')
-       .setDescription('Attach your EQ log .txt file (Discord limit ~8 MB; use filepath for large logs)'))
-    .addStringOption(o =>
-      o.setName('filepath')
-       .setDescription('Full path to the log file on this machine, e.g. C:\\Apps\\TAKPv22\\eqlog_Lyri_pq.proj.txt'))
+       .setDescription('Attach your EQ log .txt file (25 MB Discord limit — trim large logs first)')
+       .setRequired(true))
     .addIntegerOption(o =>
       o.setName('raid_id')
        .setDescription('Merge this log into an existing raid instead of creating a new one')
@@ -116,14 +112,6 @@ module.exports = {
       const endStr       = interaction.options.getString('end_time');
       const characterName = interaction.options.getString('character');
       const attachment   = interaction.options.getAttachment('logfile');
-      const localPath    = interaction.options.getString('filepath');
-
-      // -- Validate: must have at least one file source --
-      if (!attachment && !localPath) {
-        return interaction.editReply(
-          '❌ Please provide either a **logfile** attachment or a **filepath** to the log on this machine.'
-        );
-      }
 
       // -- Parse dates --
       const startDate = parseDate(dateStr);
@@ -147,20 +135,11 @@ module.exports = {
       // -- Parse zones list --
       const zones = zoneInput.split(',').map(z => z.trim()).filter(Boolean);
 
-      // -- Resolve file path --
-      let filePath = localPath;
-      let tempFile = null;
-
-      if (attachment) {
-        tempFile = path.join(os.tmpdir(), `eq_log_${Date.now()}.txt`);
-        await interaction.editReply('⬇️ Downloading log file from Discord...');
-        await downloadFile(attachment.url, tempFile);
-        filePath = tempFile;
-      } else {
-        if (!fs.existsSync(filePath)) {
-          return interaction.editReply(`❌ File not found: \`${filePath}\``);
-        }
-      }
+      // -- Download attachment to temp file --
+      const tempFile = path.join(os.tmpdir(), `eq_log_${Date.now()}.txt`);
+      await interaction.editReply('⬇️ Downloading log file from Discord...');
+      await downloadFile(attachment.url, tempFile);
+      const filePath = tempFile;
 
       // -- Status update --
       await interaction.editReply(
