@@ -75,11 +75,9 @@ client.on('interactionCreate', async interaction => {
   try {
     await command.execute(interaction);
 
-    // Auto-delete the bot's reply after 5 minutes (skip ephemeral messages)
-    const reply = await interaction.fetchReply().catch(() => null);
-    if (reply && !reply.flags.has(64 /* Ephemeral */)) {
-      setTimeout(() => reply.delete().catch(() => {}), 5 * 60 * 1000);
-    }
+    // Auto-delete the bot's reply after 5 minutes.
+    // interaction.deleteReply() silently fails for ephemeral messages, which is fine.
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 5 * 60 * 1000);
   } catch (err) {
     console.error(`[ERROR] /${interaction.commandName}:`, err);
 
