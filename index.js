@@ -19,6 +19,7 @@ const path = require('path');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildScheduledEvents,
     GatewayIntentBits.GuildVoiceStates,
   ],
@@ -44,7 +45,13 @@ async function purgeOldMessages(channel) {
     const cutoff   = Date.now() - 5 * 60 * 1000;
     const messages = await channel.messages.fetch({ limit: 100 });
     const toDelete = messages.filter(m => !m.pinned && m.createdTimestamp < cutoff);
-    if (toDelete.size > 0) await channel.bulkDelete(toDelete, true);
+    if (toDelete.size === 0) return;
+    // bulkDelete requires 2+ messages; fall back to individual deletes for single messages
+    if (toDelete.size === 1) {
+      await toDelete.first().delete();
+    } else {
+      await channel.bulkDelete(toDelete, true);
+    }
   } catch (err) {
     console.error('[Purge] Error:', err);
   }
