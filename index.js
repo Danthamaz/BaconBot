@@ -76,6 +76,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   });
 });
 
+// Bot is only allowed in 'bacon-bot' channel
 const ALLOWED_CHANNEL = process.env.CHANNEL_ID || null;
 
 client.on('interactionCreate', async interaction => {
@@ -93,10 +94,6 @@ client.on('interactionCreate', async interaction => {
 
   try {
     await command.execute(interaction);
-
-    // Auto-delete the bot's reply after 5 minutes.
-    // interaction.deleteReply() silently fails for ephemeral messages, which is fine.
-    setTimeout(() => interaction.deleteReply().catch(() => {}), 5 * 60 * 1000);
   } catch (err) {
     console.error(`[ERROR] /${interaction.commandName}:`, err);
 
