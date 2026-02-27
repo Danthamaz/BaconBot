@@ -10,13 +10,18 @@
 require('dotenv').config();
 
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const apiServer = require('./lib/api-server');
+const apiServer    = require('./lib/api-server');
+const eventTracker = require('./lib/event-tracker');
 const fs   = require('fs');
 const path = require('path');
 
 // ── Bot client ─────────────────────────────────────────────────────────────
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildScheduledEvents,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
 });
 
 // ── Load slash commands ────────────────────────────────────────────────────
@@ -34,9 +39,22 @@ for (const file of fs.readdirSync(commandsDir).filter(f => f.endsWith('.js'))) {
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────
-client.once('clientReady', () => {
+client.once('clientReady', async () => {
   console.log(`\n✅ Logged in as ${client.user.tag} (${client.user.id})`);
   console.log(`   Serving ${client.guilds.cache.size} guild(s)\n`);
+  await eventTracker.init(client);
+});
+
+client.on('guildScheduledEventUpdate', (oldEvent, newEvent) => {
+  eventTracker.onScheduledEventUpdate(oldEvent, newEvent).catch(err => {
+    console.error('[ERROR] guildScheduledEventUpdate:', err);
+  });
+});
+
+client.on('voiceStateUpdate', (oldState, newState) => {
+  eventTracker.onVoiceStateUpdate(oldState, newState).catch(err => {
+    console.error('[ERROR] voiceStateUpdate:', err);
+  });
 });
 
 const ALLOWED_CHANNEL = process.env.CHANNEL_ID || null;
