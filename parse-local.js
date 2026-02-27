@@ -1,88 +1,79 @@
 'use strict';
 
 /**
- * Local parse script — run on the guild leader's PC to submit large log files.
+ * Local auto-parse script — scans an entire EQ log, detects raid sessions
+ * automatically (Wed/Fri/Sat/Sun 1–5pm UTC, approved zones), and submits
+ * each one to the bot server after confirmation.
  *
  * Usage:
- *   node parse-local.js --file "C:\path\to\eqlog.txt" ^
- *                       --name "VP Thursday 2/26" ^
- *                       --zone "Veeshan's Peak" ^
- *                       --date "2026-02-26" ^
- *                       --start "20:00" ^
- *                       --end "23:00" ^
- *                       --character "Lyri"
+ *   node parse-local.js --file "C:\path\to\eqlog.txt" --timezone "America/Phoenix" --character "Lyri"
  *
- *   Merge into existing raid:
- *   node parse-local.js ... --raid-id 12
+ * Options:
+ *   --file        Path to the EQ log file (required)
+ *   --timezone    IANA timezone of the log, e.g. America/Phoenix, America/Chicago (required)
+ *   --character   Log owner's character name for self-loot attribution (recommended)
+ *   --yes         Auto-confirm all sessions without prompting
+ *   --dry-run     Parse and show results, do not submit anything
+ *   --server      Override server URL (default: SERVER_URL in .env)
+ *   --key         Override API key (default: API_KEY in .env)
  *
- * Config (set once in .env or pass as args):
- *   SERVER_URL=http://129.146.142.5:3001
- *   API_KEY=your_secret_key
+ * Common timezones:
+ *   Arizona (no DST)  : America/Phoenix
+ *   Central Time      : America/Chicago
+ *   Eastern Time      : America/New_York
+ *   Mountain Time     : America/Denver
+ *   Pacific Time      : America/Los_Angeles
  */
 
 require('dotenv').config();
 
-const https   = require('https');
-const http    = require('http');
-const { parseLog } = require('./lib/parser');
+const readline = require('readline');
+const https    = require('https');
+const http     = require('http');
+const { autoParseLog, APPROVED_ZONES } = require('./lib/parser');
 
-// ── Arg parsing ────────────────────────────────────────────────────────────
+// ── Args ───────────────────────────────────────────────────────────────────
 
 const args = {};
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   if (argv[i].startsWith('--')) {
     const key = argv[i].slice(2);
-    args[key] = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : true;
-    if (!argv[i + 1]?.startsWith('--')) i++;
+    const val = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : true;
+    args[key] = val;
+    if (val !== true) i++;
   }
 }
 
 const file      = args['file'];
-const raidName  = args['name'];
-const zoneInput = args['zone'];
-const dateStr   = args['date'];
-const startStr  = args['start'];
-const endStr    = args['end'];
-const character = args['character'];
-const raidId    = args['raid-id'] ? parseInt(args['raid-id'], 10) : null;
-const serverUrl = args['server'] || process.env.SERVER_URL || 'http://129.146.142.5:3001';
-const apiKey    = args['key']    || process.env.API_KEY;
+const timezone  = args['timezone'];
+const character = args['character'] || null;
+const autoYes   = args['yes']      === true;
+const dryRun    = args['dry-run']  === true;
+const serverUrl = args['server']   || process.env.SERVER_URL || 'http://129.146.142.5:3001';
+const apiKey    = args['key']      || process.env.API_KEY;
 
 // ── Validation ─────────────────────────────────────────────────────────────
 
 const missing = [];
-if (!file)      missing.push('--file');
-if (!raidName && !raidId)  missing.push('--name');
-if (!zoneInput) missing.push('--zone');
-if (!dateStr)   missing.push('--date');
-if (!startStr)  missing.push('--start');
-if (!endStr)    missing.push('--end');
-if (!character) missing.push('--character');
-if (!apiKey)    missing.push('--key (or API_KEY in .env)');
+if (!file)     missing.push('--file');
+if (!timezone) missing.push('--timezone');
+if (!dryRun && !apiKey) missing.push('--key or API_KEY in .env');
 
-if (missing.length > 0) {
-  console.error(`Missing required arguments: ${missing.join(', ')}`);
-  console.error('\nExample:');
-  console.error('  node parse-local.js --file "C:\\Logs\\eqlog.txt" --name "VP Thursday" --zone "Veeshan\'s Peak" --date "2026-02-26" --start "20:00" --end "23:00" --character "Lyri"');
+if (missing.length) {
+  console.error(`\nMissing: ${missing.join(', ')}\n`);
+  console.error('Example:');
+  console.error('  node parse-local.js --file "C:\\Logs\\eqlog.txt" --timezone "America/Phoenix" --character "Lyri"');
   process.exit(1);
 }
 
-// ── Date helpers ───────────────────────────────────────────────────────────
-
-function parseDate(str) {
-  let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
-  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
-  return null;
-}
-
-function applyTime(date, timeStr) {
-  const m = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  if (!m) return false;
-  date.setHours(+m[1], +m[2], +(m[3] || 0), 0);
-  return true;
+// Validate timezone
+try {
+  Intl.DateTimeFormat(undefined, { timeZone: timezone });
+} catch {
+  console.error(`Invalid timezone: "${timezone}"`);
+  console.error('Use an IANA timezone name, e.g. America/Phoenix, America/Chicago');
+  process.exit(1);
 }
 
 // ── HTTP POST ──────────────────────────────────────────────────────────────
@@ -117,95 +108,138 @@ function post(url, body, key) {
   });
 }
 
+// ── Interactive prompt ─────────────────────────────────────────────────────
+
+function prompt(rl, question) {
+  return new Promise(resolve => rl.question(question, resolve));
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
-  const startDate = parseDate(dateStr);
-  const endDate   = parseDate(dateStr);
-
-  if (!startDate) { console.error('Invalid date format. Use YYYY-MM-DD or MM/DD/YYYY.'); process.exit(1); }
-  if (!applyTime(startDate, startStr)) { console.error('Invalid start time. Use HH:MM.'); process.exit(1); }
-  if (!applyTime(endDate,   endStr))   { console.error('Invalid end time. Use HH:MM.');   process.exit(1); }
-  if (endDate <= startDate) endDate.setDate(endDate.getDate() + 1); // crosses midnight
-
-  const zones = zoneInput.split(',').map(z => z.trim()).filter(Boolean);
-
   console.log('\n══════════════════════════════════════════');
-  console.log('  BaconBot — Local Log Parser');
+  console.log('  BaconBot — Auto Log Parser');
   console.log('══════════════════════════════════════════');
-  console.log(`  File     : ${file}`);
-  console.log(`  Raid     : ${raidName || `(merge into #${raidId})`}`);
-  console.log(`  Zone(s)  : ${zones.join(', ')}`);
-  console.log(`  Window   : ${startDate.toLocaleString()} → ${endDate.toLocaleString()}`);
-  console.log(`  Character: ${character}`);
-  console.log(`  Server   : ${serverUrl}`);
-  if (raidId) console.log(`  Merge ID : ${raidId}`);
+  console.log(`  File      : ${file}`);
+  console.log(`  Timezone  : ${timezone}`);
+  console.log(`  Character : ${character || '(not set — self-loot won\'t be attributed)'}`);
+  console.log(`  Server    : ${dryRun ? '(dry run)' : serverUrl}`);
+  console.log(`  Schedule  : Wed/Fri/Sat/Sun  13:00–17:00 UTC`);
   console.log('══════════════════════════════════════════\n');
 
-  console.log('Parsing log file...');
-  const startMs = Date.now();
-  let lastReport = Date.now();
+  console.log('Scanning log file...');
+  const startMs   = Date.now();
+  let lastReport  = Date.now();
 
-  const result = await parseLog({
+  const { sessions, lineCount } = await autoParseLog({
     filePath:      file,
-    startTime:     startDate,
-    endTime:       endDate,
-    zones,
+    timezone,
     characterName: character,
-    onProgress: (lines) => {
+    onProgress: lines => {
       const now = Date.now();
       if (now - lastReport > 2000) {
         lastReport = now;
-        process.stdout.write(`  ${(lines / 1000).toFixed(0)}k lines scanned...\r`);
+        process.stdout.write(`  ${(lines / 1000000).toFixed(2)}M lines scanned...\r`);
       }
     },
   });
 
   const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
   process.stdout.write('\n');
-  console.log(`\nParsed ${result.lineCount.toLocaleString()} lines in ${elapsed}s`);
-  console.log(`  Attendance : ${result.attendance.length} players`);
-  console.log(`  Loot       : ${result.loot.length} events`);
+  console.log(`Scanned ${lineCount.toLocaleString()} lines in ${elapsed}s\n`);
 
-  if (result.attendance.length === 0 && result.loot.length === 0) {
-    console.error('\n⚠️  No data found in that time range / zone. Check your date, time, and zone name.');
-    process.exit(1);
+  if (sessions.length === 0) {
+    console.log('No raid sessions found.');
+    console.log('Check that your log covers Wed/Fri/Sat/Sun during 1–5pm UTC and');
+    console.log('includes /who output while in an approved zone.\n');
+    console.log('Approved zones:');
+    console.log('  ' + APPROVED_ZONES.join(', '));
+    return;
   }
 
-  console.log('\nSubmitting to server...');
+  console.log(`Found ${sessions.length} raid session(s):\n`);
+  sessions.forEach((s, i) => {
+    const startUTC = s.firstSeen.toISOString().slice(11, 16);
+    const endUTC   = s.lastSeen.toISOString().slice(11, 16);
+    console.log(`  [${i + 1}] ${s.date} ${s.dayName}`);
+    console.log(`       Zones     : ${s.zones.join(', ') || 'unknown'}`);
+    console.log(`       Attendance: ${s.attendance.length} players`);
+    console.log(`       Loot      : ${s.loot.length} events`);
+    console.log(`       UTC window: ${startUTC} – ${endUTC}`);
+    console.log();
+  });
 
-  let response;
-  if (raidId) {
-    response = await post(`${serverUrl}/raid/merge?id=${raidId}`, {
-      attendance: result.attendance,
-      loot:       result.loot,
-    }, apiKey);
-  } else {
-    response = await post(`${serverUrl}/raid`, {
-      raid: {
-        name:          raidName,
-        zone:          zones.join(', '),
-        startTime:     startDate.toISOString(),
-        endTime:       endDate.toISOString(),
-        characterName: character,
-        submittedBy:   'local-script',
-      },
-      attendance: result.attendance,
-      loot:       result.loot,
-    }, apiKey);
+  if (dryRun) {
+    console.log('[Dry run] Nothing submitted.');
+    return;
   }
 
-  if (response.status === 200) {
-    const id = response.body.raidId;
-    console.log(`\n✅ Success! Raid ID: ${id}`);
-    if (response.body.newLoot !== undefined) {
-      console.log(`   ${response.body.newLoot} new loot rows merged.`);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+  let submitted = 0;
+  let skipped   = 0;
+
+  for (const [idx, session] of sessions.entries()) {
+    const autoName    = `${session.date} ${session.dayName} - ${session.zones.slice(0, 2).join(', ')}`;
+    const zoneStr     = session.zones.join(', ');
+    const startUTC    = session.firstSeen.toISOString().slice(11, 16);
+    const endUTC      = session.lastSeen.toISOString().slice(11, 16);
+
+    console.log(`─── Session ${idx + 1}/${sessions.length}: ${session.date} ${session.dayName} ───`);
+    console.log(`  Zones      : ${zoneStr}`);
+    console.log(`  Attendance : ${session.attendance.length} players`);
+    console.log(`  Loot       : ${session.loot.length} events`);
+    console.log(`  UTC window : ${startUTC} – ${endUTC}`);
+
+    let raidName = autoName;
+    let submit   = autoYes;
+
+    if (!autoYes) {
+      const nameInput = (await prompt(rl, `  Raid name  [${autoName}]: `)).trim();
+      if (nameInput) raidName = nameInput;
+
+      const ans = (await prompt(rl, '  Submit? (y/n): ')).trim().toLowerCase();
+      submit = (ans === 'y' || ans === 'yes');
+    } else {
+      console.log(`  Raid name  : ${raidName} (auto)`);
     }
-    console.log(`\n   Use /raids info id:${id} in Discord to verify.`);
-  } else {
-    console.error(`\n❌ Server returned ${response.status}:`, response.body);
-    process.exit(1);
+
+    if (!submit) {
+      console.log('  Skipped.\n');
+      skipped++;
+      continue;
+    }
+
+    try {
+      const res = await post(`${serverUrl}/raid`, {
+        raid: {
+          name:          raidName,
+          zone:          zoneStr,
+          startTime:     session.firstSeen.toISOString(),
+          endTime:       session.lastSeen.toISOString(),
+          characterName: character || null,
+          submittedBy:   'local-script',
+        },
+        attendance: session.attendance,
+        loot:       session.loot,
+      }, apiKey);
+
+      if (res.status === 200) {
+        console.log(`  ✓ Saved as Raid #${res.body.raidId}\n`);
+        submitted++;
+      } else {
+        console.error(`  ✗ Server error ${res.status}:`, res.body, '\n');
+      }
+    } catch (err) {
+      console.error(`  ✗ Request failed: ${err.message}\n`);
+    }
   }
+
+  rl.close();
+
+  console.log('══════════════════════════════════════════');
+  console.log(`  Done. ${submitted} submitted, ${skipped} skipped.`);
+  console.log('══════════════════════════════════════════\n');
 }
 
 main().catch(err => {
