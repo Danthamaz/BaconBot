@@ -149,6 +149,7 @@ module.exports = {
       );
 
       // -- Run the parser --
+      const fileSize = fs.statSync(filePath).size;
       let lastProgressUpdate = Date.now();
       const result = await parseLog({
         filePath,
@@ -156,13 +157,14 @@ module.exports = {
         endTime:       endDate,
         zones,
         characterName,
-        onProgress: (lines) => {
+        onProgress: (lines, bytesRead) => {
           // Rate-limit Discord edits to once per 3 seconds
           const now = Date.now();
           if (now - lastProgressUpdate > 3000) {
             lastProgressUpdate = now;
+            const pct = fileSize > 0 ? Math.min(99, Math.round((bytesRead / fileSize) * 100)) : 0;
             interaction.editReply(
-              `⚙️ Parsing log... (${(lines / 1000).toFixed(0)}k lines scanned)`
+              `⚙️ Parsing log... **${pct}%** (${(lines / 1000).toFixed(0)}k lines scanned)`
             ).catch(() => {});
           }
         },
