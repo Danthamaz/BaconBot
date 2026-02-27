@@ -10,6 +10,7 @@
 require('dotenv').config();
 
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const apiServer = require('./lib/api-server');
 const fs   = require('fs');
 const path = require('path');
 
@@ -80,3 +81,4 @@ if (!process.env.DISCORD_TOKEN) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
+apiServer.start();
