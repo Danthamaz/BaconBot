@@ -39,10 +39,29 @@ for (const file of fs.readdirSync(commandsDir).filter(f => f.endsWith('.js'))) {
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────
+async function purgeOldMessages(channel) {
+  try {
+    const cutoff   = Date.now() - 5 * 60 * 1000;
+    const messages = await channel.messages.fetch({ limit: 100 });
+    const toDelete = messages.filter(m => !m.pinned && m.createdTimestamp < cutoff);
+    if (toDelete.size > 0) await channel.bulkDelete(toDelete, true);
+  } catch (err) {
+    console.error('[Purge] Error:', err);
+  }
+}
+
 client.once('clientReady', async () => {
   console.log(`\n✅ Logged in as ${client.user.tag} (${client.user.id})`);
   console.log(`   Serving ${client.guilds.cache.size} guild(s)\n`);
   await eventTracker.init(client);
+
+  if (ALLOWED_CHANNEL) {
+    const ch = await client.channels.fetch(ALLOWED_CHANNEL).catch(() => null);
+    if (ch) {
+      purgeOldMessages(ch);
+      setInterval(() => purgeOldMessages(ch), 60 * 1000);
+    }
+  }
 });
 
 client.on('guildScheduledEventUpdate', (oldEvent, newEvent) => {
