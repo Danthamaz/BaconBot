@@ -78,6 +78,30 @@ try {
 
 // ── HTTP POST ──────────────────────────────────────────────────────────────
 
+function get(url, key) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const opts   = {
+      hostname: parsed.hostname,
+      port:     parsed.port,
+      path:     parsed.pathname + parsed.search,
+      method:   'GET',
+      headers:  { 'x-api-key': key },
+    };
+    const client = url.startsWith('https') ? https : http;
+    const req = client.request(opts, res => {
+      let resp = '';
+      res.on('data', c => { resp += c; });
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(resp) }); }
+        catch { resolve({ status: res.statusCode, body: resp }); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 function post(url, body, key) {
   return new Promise((resolve, reject) => {
     const data   = JSON.stringify(body);
@@ -191,17 +215,31 @@ async function main() {
     console.log(`  Loot       : ${session.loot.length} events`);
     console.log(`  UTC window : ${startUTC} – ${endUTC}`);
 
+    // Check if a raid already exists for this date
+    let existingRaid = null;
+    try {
+      const lookup = await get(`${serverUrl}/raid?date=${session.date}`, apiKey);
+      if (lookup.status === 200) existingRaid = lookup.body.raid;
+    } catch {
+      // server unreachable — will surface on submit
+    }
+
+    if (existingRaid) {
+      console.log(`  ⚡ Raid #${existingRaid.id} already exists: "${existingRaid.name}" — will MERGE`);
+    }
+
     let raidName = autoName;
     let submit   = autoYes;
 
     if (!autoYes) {
-      const nameInput = (await prompt(rl, `  Raid name  [${autoName}]: `)).trim();
-      if (nameInput) raidName = nameInput;
-
+      if (!existingRaid) {
+        const nameInput = (await prompt(rl, `  Raid name  [${autoName}]: `)).trim();
+        if (nameInput) raidName = nameInput;
+      }
       const ans = (await prompt(rl, '  Submit? (y/n): ')).trim().toLowerCase();
       submit = (ans === 'y' || ans === 'yes');
     } else {
-      console.log(`  Raid name  : ${raidName} (auto)`);
+      if (!existingRaid) console.log(`  Raid name  : ${raidName} (auto)`);
     }
 
     if (!submit) {
@@ -211,24 +249,37 @@ async function main() {
     }
 
     try {
-      const res = await post(`${serverUrl}/raid`, {
-        raid: {
-          name:          raidName,
-          zone:          zoneStr,
-          startTime:     session.firstSeen.toISOString(),
-          endTime:       session.lastSeen.toISOString(),
-          characterName: character || null,
-          submittedBy:   'local-script',
-        },
-        attendance: session.attendance,
-        loot:       session.loot,
-      }, apiKey);
-
-      if (res.status === 200) {
-        console.log(`  ✓ Saved as Raid #${res.body.raidId}\n`);
-        submitted++;
+      let res;
+      if (existingRaid) {
+        res = await post(`${serverUrl}/raid/merge?id=${existingRaid.id}`, {
+          attendance: session.attendance,
+          loot:       session.loot,
+        }, apiKey);
+        if (res.status === 200) {
+          console.log(`  ✓ Merged into Raid #${existingRaid.id} (${res.body.newLoot} new loot rows)\n`);
+          submitted++;
+        } else {
+          console.error(`  ✗ Server error ${res.status}:`, res.body, '\n');
+        }
       } else {
-        console.error(`  ✗ Server error ${res.status}:`, res.body, '\n');
+        res = await post(`${serverUrl}/raid`, {
+          raid: {
+            name:          raidName,
+            zone:          zoneStr,
+            startTime:     session.firstSeen.toISOString(),
+            endTime:       session.lastSeen.toISOString(),
+            characterName: character || null,
+            submittedBy:   'local-script',
+          },
+          attendance: session.attendance,
+          loot:       session.loot,
+        }, apiKey);
+        if (res.status === 200) {
+          console.log(`  ✓ Saved as Raid #${res.body.raidId}\n`);
+          submitted++;
+        } else {
+          console.error(`  ✗ Server error ${res.status}:`, res.body, '\n');
+        }
       }
     } catch (err) {
       console.error(`  ✗ Request failed: ${err.message}\n`);
