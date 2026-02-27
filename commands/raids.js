@@ -40,6 +40,10 @@ module.exports = {
     .addSubcommand(sub =>
       sub.setName('list')
          .setDescription('List recorded raids')
+         .addStringOption(o =>
+           o.setName('zone').setDescription('Filter by zone name (partial match)'))
+         .addStringOption(o =>
+           o.setName('date').setDescription('Filter by date — YYYY-MM-DD or MM/DD/YYYY'))
          .addIntegerOption(o =>
            o.setName('page').setDescription('Page number (default: 1)').setMinValue(1)))
     .addSubcommand(sub =>
@@ -73,17 +77,33 @@ module.exports = {
 
     // ── /raids list ─────────────────────────────────────────────────────────
     if (sub === 'list') {
-      const page   = (interaction.options.getInteger('page') ?? 1) - 1;
-      const limit  = 8;
-      const offset = page * limit;
-      const raids  = getRaids(limit, offset);
-      const total  = getRaidCount();
+      const page     = (interaction.options.getInteger('page') ?? 1) - 1;
+      const zoneFilter = interaction.options.getString('zone') || null;
+      const dateStr    = interaction.options.getString('date') || null;
+
+      let dateStart = null;
+      let dateEnd   = null;
+      if (dateStr) {
+        const d = parseDate(dateStr);
+        if (!d) return interaction.reply('❌ Invalid date format. Use `YYYY-MM-DD` or `MM/DD/YYYY`.');
+        dateStart = new Date(d).setHours(0, 0, 0, 0);
+        dateEnd   = new Date(d).setHours(23, 59, 59, 999);
+      }
+
+      const filters = { zone: zoneFilter, dateStart, dateEnd };
+      const limit   = 8;
+      const offset  = page * limit;
+      const raids   = getRaids(limit, offset, filters);
+      const total   = getRaidCount(filters);
 
       if (raids.length === 0) {
+        const hasFilters = zoneFilter || dateStr;
         return interaction.reply(
-          page === 0
-            ? '📭 No raids recorded yet. Use `/parse` to import a log file.'
-            : '📭 No more raids on this page.'
+          hasFilters
+            ? `📭 No raids found matching those filters.`
+            : page === 0
+              ? '📭 No raids recorded yet. Use `/parse` to import a log file.'
+              : '📭 No more raids on this page.'
         );
       }
 
@@ -94,13 +114,20 @@ module.exports = {
         `↳ 👥 ${r.attendance_count} players  •  💎 ${r.loot_count} items`
       );
 
-      const totalPages = Math.ceil(total / limit);
+      const totalPages  = Math.ceil(total / limit);
+      const filterLabel = [
+        zoneFilter ? `zone: ${zoneFilter}` : null,
+        dateStr    ? `date: ${dateStr}`     : null,
+      ].filter(Boolean).join('  •  ');
 
       const embed = new EmbedBuilder()
         .setTitle('📋 Recorded Raids')
         .setColor(0x8B0000)
         .setDescription(lines.join('\n\n'))
-        .setFooter({ text: `Page ${page + 1} of ${totalPages}  •  ${total} total raids  •  Use /raids list page:${page + 2} for next` });
+        .setFooter({ text: [
+          `Page ${page + 1} of ${totalPages}  •  ${total} raid(s)`,
+          filterLabel || null,
+        ].filter(Boolean).join('  •  ') });
 
       return interaction.reply({ embeds: [embed] });
     }
