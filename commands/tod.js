@@ -3,17 +3,62 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../lib/db');
 
+const TOD_TIMEZONE = process.env.TOD_TIMEZONE || null;
+
+// ── Timezone helpers ─────────────────────────────────────────────────────
+
+/** Get today's date components in the configured timezone. */
+function todayComponents() {
+  if (!TOD_TIMEZONE) {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth(), day: d.getDate() };
+  }
+  const s = new Date().toLocaleDateString('en-CA', { timeZone: TOD_TIMEZONE }); // "YYYY-MM-DD"
+  const [y, m, d] = s.split('-').map(Number);
+  return { year: y, month: m - 1, day: d };
+}
+
+/** Convert wall-clock components in TOD_TIMEZONE to UTC epoch ms. */
+function makeTime(year, month0, day, hour, minute) {
+  if (!TOD_TIMEZONE) {
+    return new Date(year, month0, day, hour, minute, 0, 0).getTime();
+  }
+  // Treat components as UTC, then shift by the timezone offset
+  const asUtc = Date.UTC(year, month0, day, hour, minute, 0, 0);
+  const utcStr = new Date(asUtc).toLocaleString('en-US', { timeZone: 'UTC' });
+  const tzStr  = new Date(asUtc).toLocaleString('en-US', { timeZone: TOD_TIMEZONE });
+  const offset = Date.parse(utcStr) - Date.parse(tzStr); // positive = tz behind UTC
+  return asUtc + offset;
+}
+
+// ── Duration formatting ──────────────────────────────────────────────────
+
+/** Convert fractional hours to a human-readable string like "2d 18h 3m". */
+function formatDuration(hours) {
+  const totalMinutes = Math.round(hours * 60);
+  const d = Math.floor(totalMinutes / (24 * 60));
+  const h = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const m = totalMinutes % 60;
+  const parts = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0) parts.push(`${m}m`);
+  return parts.join(' ') || '0m';
+}
+
 // ── Timestamp parsing ──────────────────────────────────────────────────────
 
 /**
  * Parse a human-friendly time string into a Unix-ms timestamp.
+ * Local times (14:34, 2:34pm, etc.) use TOD_TIMEZONE from .env.
  * Supported formats:
- *   "now"
- *   "14:34"          → today at that 24h time
- *   "2:34pm"         → today at that 12h time
- *   "2/27 14:34"     → this year, month/day at time
- *   "2026-02-27 14:34" → full date + time
- *   numeric string   → treated as unix seconds
+ *   "now"                        → current time
+ *   "<t:1740700440:F>"           → Discord timestamp (timezone-safe)
+ *   "1740700440"                 → Unix seconds
+ *   "14:34"                      → today at that 24h time
+ *   "2:34pm"                     → today at that 12h time
+ *   "2/27 14:34"                 → this year, month/day at time
+ *   "2026-02-27 14:34"           → full date + time
  */
 function parseTimestamp(input) {
   const s = input.trim().toLowerCase();
@@ -39,40 +84,30 @@ function parseTimestamp(input) {
     const m = parseInt(match12[2], 10);
     if (match12[3] === 'pm' && h !== 12) h += 12;
     if (match12[3] === 'am' && h === 12) h = 0;
-    const d = new Date();
-    d.setHours(h, m, 0, 0);
-    return d.getTime();
+    const { year, month, day } = todayComponents();
+    return makeTime(year, month, day, h, m);
   }
 
   // 24-hour time only: "14:34"
   const match24 = s.match(/^(\d{1,2}):(\d{2})$/);
   if (match24) {
-    const d = new Date();
-    d.setHours(parseInt(match24[1], 10), parseInt(match24[2], 10), 0, 0);
-    return d.getTime();
+    const { year, month, day } = todayComponents();
+    return makeTime(year, month, day, parseInt(match24[1], 10), parseInt(match24[2], 10));
   }
 
   // M/D HH:MM  → current year
   const matchMD = s.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
   if (matchMD) {
-    const d = new Date();
-    d.setMonth(parseInt(matchMD[1], 10) - 1, parseInt(matchMD[2], 10));
-    d.setHours(parseInt(matchMD[3], 10), parseInt(matchMD[4], 10), 0, 0);
-    return d.getTime();
+    const { year } = todayComponents();
+    return makeTime(year, parseInt(matchMD[1], 10) - 1, parseInt(matchMD[2], 10),
+      parseInt(matchMD[3], 10), parseInt(matchMD[4], 10));
   }
 
   // YYYY-MM-DD HH:MM
   const matchFull = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
   if (matchFull) {
-    const d = new Date(
-      parseInt(matchFull[1], 10),
-      parseInt(matchFull[2], 10) - 1,
-      parseInt(matchFull[3], 10),
-      parseInt(matchFull[4], 10),
-      parseInt(matchFull[5], 10),
-      0, 0
-    );
-    return d.getTime();
+    return makeTime(parseInt(matchFull[1], 10), parseInt(matchFull[2], 10) - 1,
+      parseInt(matchFull[3], 10), parseInt(matchFull[4], 10), parseInt(matchFull[5], 10));
   }
 
   return null;
@@ -235,7 +270,7 @@ async function handleRecord(interaction) {
     .addFields(
       { name: 'Killed', value: `<t:${killUnix}:f> (<t:${killUnix}:R>)`, inline: true },
       { name: 'Respawn', value: `<t:${respawnUnix}:f> (<t:${respawnUnix}:R>)`, inline: true },
-      { name: 'Lockout', value: `${mob.lockout_hours}h`, inline: true },
+      { name: 'Lockout', value: formatDuration(mob.lockout_hours), inline: true },
     );
 
   return interaction.reply({ embeds: [embed] });
@@ -262,7 +297,7 @@ async function handleStatus(interaction) {
       embed.addFields(
         { name: 'Last Kill', value: `<t:${killUnix}:f> (<t:${killUnix}:R>)`, inline: true },
         { name: isLocked ? 'Respawn' : 'Respawned', value: `<t:${respawnUnix}:f> (<t:${respawnUnix}:R>)`, inline: true },
-        { name: 'Lockout', value: `${mob.lockout_hours}h`, inline: true },
+        { name: 'Lockout', value: formatDuration(mob.lockout_hours), inline: true },
       );
     } else {
       embed.setDescription('No kills recorded — mob is available.');
@@ -330,7 +365,7 @@ async function handleHistory(interaction) {
     .setTitle(`Kill History: ${mob.name}`)
     .setDescription(lines.join('\n'))
     .setColor(0x9B59B6)
-    .setFooter({ text: `Lockout: ${mob.lockout_hours}h` });
+    .setFooter({ text: `Lockout: ${formatDuration(mob.lockout_hours)}` });
 
   return interaction.reply({ embeds: [embed] });
 }
@@ -360,11 +395,11 @@ async function handleMobAdd(interaction) {
 
   const existing = db.getTodMob(name);
   if (existing) {
-    return interaction.reply({ content: `❌ **${existing.name}** already exists (lockout: ${existing.lockout_hours}h). Use \`/tod mob-edit\` to change it.`, flags: 64 });
+    return interaction.reply({ content: `❌ **${existing.name}** already exists (lockout: ${formatDuration(existing.lockout_hours)}). Use \`/tod mob-edit\` to change it.`, flags: 64 });
   }
 
   db.addTodMob(name, lockout, interaction.user.id);
-  return interaction.reply({ content: `✅ Added **${name}** with a ${lockout}h lockout.` });
+  return interaction.reply({ content: `✅ Added **${name}** with a **${formatDuration(lockout)}** lockout.` });
 }
 
 async function handleMobEdit(interaction) {
@@ -380,7 +415,7 @@ async function handleMobEdit(interaction) {
   if (!mob) return interaction.reply({ content: `❌ Mob **${name}** not found.`, flags: 64 });
 
   db.updateTodMob(mob.name, lockout);
-  return interaction.reply({ content: `✅ Updated **${mob.name}** lockout: ${mob.lockout_hours}h → ${lockout}h.` });
+  return interaction.reply({ content: `✅ Updated **${mob.name}** lockout: ${formatDuration(mob.lockout_hours)} → **${formatDuration(lockout)}**.` });
 }
 
 async function handleMobRemove(interaction) {
