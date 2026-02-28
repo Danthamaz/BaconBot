@@ -130,4 +130,4 @@ if (!process.env.DISCORD_TOKEN) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
-apiServer.start();
+apiServer.start(client);

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BaconBot - Raid Log Parser</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>BaconBot</h1>
+    <nav>
+      <button class="tab active" data-view="parse">Parse</button>
+      <button class="tab" data-view="live">Live Mode</button>
+      <button class="tab" data-view="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ═══ Parse View ═══ -->
+    <section id="view-parse" class="view active">
+      <div class="controls">
+        <div class="control-row">
+          <label>Time Range:</label>
+          <select id="parse-range">
+            <option value="all">All Time</option>
+            <option value="month">Last Month</option>
+            <option value="week" selected>Last Week</option>
+            <option value="day">Last Day</option>
+            <option value="hour">Last Hour</option>
+          </select>
+          <button id="btn-scan" class="btn-primary">Scan Log</button>
+        </div>
+      </div>
+
+      <div id="parse-progress" class="progress-container hidden">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <span id="progress-text">0%</span>
+      </div>
+
+      <div id="parse-results" class="hidden">
+        <div class="results-header">
+          <span id="results-summary"></span>
+          <button id="btn-upload" class="btn-primary">Upload Selected</button>
+        </div>
+        <div id="session-list"></div>
+      </div>
+
+      <div id="parse-empty" class="empty-state hidden">
+        <p>No raid sessions found in the selected time range.</p>
+        <p class="hint">Check that your log covers Wed/Fri/Sat/Sun during 1-5pm UTC and includes /who output while in an approved zone.</p>
+      </div>
+    </section>
+
+    <!-- ═══ Live Mode View ═══ -->
+    <section id="view-live" class="view hidden">
+      <div class="controls">
+        <button id="btn-live-toggle" class="btn-primary">Start Watching</button>
+        <button id="btn-live-upload" class="btn-secondary hidden">Upload Session</button>
+      </div>
+
+      <div id="live-status" class="hidden">
+        <div class="live-indicator">
+          <span class="pulse"></span>
+          <span id="live-status-text">Watching...</span>
+        </div>
+      </div>
+
+      <div class="live-panels hidden" id="live-panels">
+        <div class="live-panel">
+          <h3>Current Zone</h3>
+          <div id="live-zone" class="live-value">--</div>
+        </div>
+        <div class="live-panel">
+          <h3>Attendance <span id="live-attend-count" class="badge">0</span></h3>
+          <div id="live-attendance" class="live-scroll"></div>
+        </div>
+        <div class="live-panel">
+          <h3>Loot Feed <span id="live-loot-count" class="badge">0</span></h3>
+          <div id="live-loot" class="live-scroll"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Settings View ═══ -->
+    <section id="view-settings" class="view hidden">
+      <div class="settings-form">
+        <h2>Configuration</h2>
+
+        <div class="form-group">
+          <label for="cfg-character">Character Name</label>
+          <input type="text" id="cfg-character" placeholder="e.g. Lyri">
+        </div>
+
+        <div class="form-group">
+          <label for="cfg-timezone">Timezone</label>
+          <select id="cfg-timezone">
+            <option value="America/Phoenix">Arizona / Phoenix (no DST)</option>
+            <option value="America/Los_Angeles">Pacific (California, Nevada, Washington)</option>
+            <option value="America/Denver">Mountain (Colorado, Utah, New Mexico)</option>
+            <option value="America/Chicago">Central (Texas, Illinois, Minnesota)</option>
+            <option value="America/New_York">Eastern (New York, Florida, Georgia)</option>
+            <option value="Asia/Tokyo">Japan (JST)</option>
+            <option value="Australia/Sydney">Australia Eastern (Sydney, Melbourne)</option>
+            <option value="Australia/Perth">Australia Western (Perth)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="cfg-eqfolder">EverQuest Folder</label>
+          <input type="text" id="cfg-eqfolder" placeholder="e.g. C:\Apps\TAKPv22">
+        </div>
+
+        <div class="form-actions">
+          <button id="btn-detect" class="btn-secondary">Detect Log File</button>
+          <button id="btn-save-config" class="btn-primary">Save Settings</button>
+        </div>
+
+        <div id="settings-status" class="status-msg hidden"></div>
+
+        <div id="detected-log" class="hidden">
+          <label>Detected Log File:</label>
+          <span id="detected-log-path"></span>
+        </div>
+
+        <hr class="settings-divider">
+        <h2>Raid Schedule (UTC)</h2>
+
+        <div class="form-group">
+          <label>Raid Days</label>
+          <div class="checkbox-row" id="cfg-raid-days">
+            <label class="cb-label"><input type="checkbox" value="0"> Sun</label>
+            <label class="cb-label"><input type="checkbox" value="1"> Mon</label>
+            <label class="cb-label"><input type="checkbox" value="2"> Tue</label>
+            <label class="cb-label"><input type="checkbox" value="3"> Wed</label>
+            <label class="cb-label"><input type="checkbox" value="4"> Thu</label>
+            <label class="cb-label"><input type="checkbox" value="5"> Fri</label>
+            <label class="cb-label"><input type="checkbox" value="6"> Sat</label>
+          </div>
+        </div>
+
+        <div class="form-group form-row">
+          <div>
+            <label for="cfg-raid-start">Start Hour (UTC)</label>
+            <input type="number" id="cfg-raid-start" min="0" max="23" value="13">
+          </div>
+          <div>
+            <label for="cfg-raid-end">End Hour (UTC)</label>
+            <input type="number" id="cfg-raid-end" min="0" max="23" value="17">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="cfg-zones">Approved Zones <span class="hint">(one per line)</span></label>
+          <textarea id="cfg-zones" rows="8" placeholder="Plane of Fear&#10;Plane of Hate&#10;..."></textarea>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="status-bar">
+      <span id="status-server" class="status-dot red" title="Server status"></span>
+      <span id="status-log-file">No log file</span>
+      <span id="status-character">--</span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

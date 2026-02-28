@@ -1,4 +1,5 @@
 .env
+Bacon Bot Distribution/.env
 node_modules/
 raid_data.db
 raid_data.db-shm

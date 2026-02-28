@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "deploy": "node deploy-commands.js",
-    "sync-dist": "cp parse-local.js \"Bacon Bot Distribution/parse-local.js\" && cp lib/parser.js \"Bacon Bot Distribution/lib/parser.js\""
+    "sync-dist": "cp lib/parser.js \"Bacon Bot Distribution/lib/parser.js\""
   },
   "dependencies": {
     "discord.js": "^14.16.3",

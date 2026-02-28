@@ -2,7 +2,10 @@
   "name": "baconbot-distribution",
   "version": "1.0.0",
   "description": "BaconBot local log parser — officer distribution",
-  "main": "parse-local.js",
+  "main": "web-app.js",
+  "scripts": {
+    "web": "node web-app.js"
+  },
   "dependencies": {
     "dotenv": "^16.4.5"
   }
