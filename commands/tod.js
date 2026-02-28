@@ -3,34 +3,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../lib/db');
 
-const TOD_TIMEZONE = process.env.TOD_TIMEZONE || null;
-
-// ── Timezone helpers ─────────────────────────────────────────────────────
-
-/** Get today's date components in the configured timezone. */
-function todayComponents() {
-  if (!TOD_TIMEZONE) {
-    const d = new Date();
-    return { year: d.getFullYear(), month: d.getMonth(), day: d.getDate() };
-  }
-  const s = new Date().toLocaleDateString('en-CA', { timeZone: TOD_TIMEZONE }); // "YYYY-MM-DD"
-  const [y, m, d] = s.split('-').map(Number);
-  return { year: y, month: m - 1, day: d };
-}
-
-/** Convert wall-clock components in TOD_TIMEZONE to UTC epoch ms. */
-function makeTime(year, month0, day, hour, minute) {
-  if (!TOD_TIMEZONE) {
-    return new Date(year, month0, day, hour, minute, 0, 0).getTime();
-  }
-  // Treat components as UTC, then shift by the timezone offset
-  const asUtc = Date.UTC(year, month0, day, hour, minute, 0, 0);
-  const utcStr = new Date(asUtc).toLocaleString('en-US', { timeZone: 'UTC' });
-  const tzStr  = new Date(asUtc).toLocaleString('en-US', { timeZone: TOD_TIMEZONE });
-  const offset = Date.parse(utcStr) - Date.parse(tzStr); // positive = tz behind UTC
-  return asUtc + offset;
-}
-
 // ── Duration formatting ──────────────────────────────────────────────────
 
 /** Convert fractional hours to a human-readable string like "2d 18h 3m". */
@@ -49,21 +21,18 @@ function formatDuration(hours) {
 // ── Timestamp parsing ──────────────────────────────────────────────────────
 
 /**
- * Parse a human-friendly time string into a Unix-ms timestamp.
- * Local times (14:34, 2:34pm, etc.) use TOD_TIMEZONE from .env.
- * Supported formats:
+ * Parse a time input into a Unix-ms timestamp.
+ * Only accepts timezone-safe formats:
  *   "now"                        → current time
- *   "<t:1740700440:F>"           → Discord timestamp (timezone-safe)
- *   "1740700440"                 → Unix seconds
- *   "14:34"                      → today at that 24h time
- *   "2:34pm"                     → today at that 12h time
- *   "2/27 14:34"                 → this year, month/day at time
- *   "2026-02-27 14:34"           → full date + time
+ *   "<t:1740700440>"             → Discord timestamp (any style suffix)
+ *   "<t:1740700440:F>"           → Discord timestamp with format
+ *   "1740700440"                 → Unix seconds (10 digits)
+ *   "1740700440000"              → Unix milliseconds (13 digits)
  */
 function parseTimestamp(input) {
-  const s = input.trim().toLowerCase();
+  const s = input.trim();
 
-  if (s === 'now') return Date.now();
+  if (s.toLowerCase() === 'now') return Date.now();
 
   // Discord timestamp: <t:1740700440> or <t:1740700440:F> etc.
   const discordMatch = s.match(/^<t:(\d+)(?::[tTdDfFR])?>$/);
@@ -71,43 +40,10 @@ function parseTimestamp(input) {
     return parseInt(discordMatch[1], 10) * 1000;
   }
 
-  // Unix timestamp (all digits, 10+ chars)
+  // Unix timestamp (all digits, 10-13 chars)
   if (/^\d{10,13}$/.test(s)) {
     const n = Number(s);
     return n > 1e12 ? n : n * 1000;
-  }
-
-  // 12-hour time: "2:34pm", "11:00am"
-  const match12 = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/);
-  if (match12) {
-    let h = parseInt(match12[1], 10);
-    const m = parseInt(match12[2], 10);
-    if (match12[3] === 'pm' && h !== 12) h += 12;
-    if (match12[3] === 'am' && h === 12) h = 0;
-    const { year, month, day } = todayComponents();
-    return makeTime(year, month, day, h, m);
-  }
-
-  // 24-hour time only: "14:34"
-  const match24 = s.match(/^(\d{1,2}):(\d{2})$/);
-  if (match24) {
-    const { year, month, day } = todayComponents();
-    return makeTime(year, month, day, parseInt(match24[1], 10), parseInt(match24[2], 10));
-  }
-
-  // M/D HH:MM  → current year
-  const matchMD = s.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
-  if (matchMD) {
-    const { year } = todayComponents();
-    return makeTime(year, parseInt(matchMD[1], 10) - 1, parseInt(matchMD[2], 10),
-      parseInt(matchMD[3], 10), parseInt(matchMD[4], 10));
-  }
-
-  // YYYY-MM-DD HH:MM
-  const matchFull = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
-  if (matchFull) {
-    return makeTime(parseInt(matchFull[1], 10), parseInt(matchFull[2], 10) - 1,
-      parseInt(matchFull[3], 10), parseInt(matchFull[4], 10), parseInt(matchFull[5], 10));
   }
 
   return null;
@@ -164,7 +100,7 @@ const data = new SlashCommandBuilder()
     sub.setName('record')
       .setDescription('Record a mob kill')
       .addStringOption(o => o.setName('mob').setDescription('Mob name').setRequired(true).setAutocomplete(true))
-      .addStringOption(o => o.setName('time').setDescription('Kill time: now, 14:34, 2:34pm, 2/27 14:34').setRequired(true))
+      .addStringOption(o => o.setName('time').setDescription('Kill time: now or Discord timestamp <t:...>').setRequired(true))
       .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ'))
   )
   .addSubcommand(sub =>
@@ -236,7 +172,7 @@ async function handleRecord(interaction) {
 
   const killedAt = parseTimestamp(timeStr);
   if (!killedAt) {
-    return interaction.reply({ content: '❌ Could not parse time. Use: `now`, `14:34`, `2:34pm`, `2/27 14:34`, or `2026-02-27 14:34`.', flags: 64 });
+    return interaction.reply({ content: '❌ Could not parse time. Use `now` or a Discord timestamp like `<t:1740700440:F>`.', flags: 64 });
   }
 
   const lockoutHours = lockoutStr ? parseLockout(lockoutStr) : null;
