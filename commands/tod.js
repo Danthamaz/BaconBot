@@ -336,5 +336,5 @@ module.exports = {
   data,
   execute,
   autocomplete,
-  extraChannels: ['1464353128022278154'],
+  extraChannels: [process.env.TOD_CHANNEL_ID].filter(Boolean),
 };
