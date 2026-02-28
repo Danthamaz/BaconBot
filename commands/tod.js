@@ -20,6 +20,12 @@ function parseTimestamp(input) {
 
   if (s === 'now') return Date.now();
 
+  // Discord timestamp: <t:1740700440> or <t:1740700440:F> etc.
+  const discordMatch = s.match(/^<t:(\d+)(?::[tTdDfFR])?>$/);
+  if (discordMatch) {
+    return parseInt(discordMatch[1], 10) * 1000;
+  }
+
   // Unix timestamp (all digits, 10+ chars)
   if (/^\d{10,13}$/.test(s)) {
     const n = Number(s);
@@ -72,6 +78,48 @@ function parseTimestamp(input) {
   return null;
 }
 
+// ── Lockout duration parsing ───────────────────────────────────────────────
+
+/**
+ * Parse a lockout duration string into fractional hours.
+ * Supported formats:
+ *   "6"                → 6 hours
+ *   "6h"               → 6 hours
+ *   "2d 18h 3m"        → 66.05 hours
+ *   "2d18h3m"          → 66.05 hours
+ *   "2 Days, 18 Hours, 3 Minutes, and 20 Seconds"  → EQ paste
+ */
+function parseLockout(input) {
+  const s = input.trim();
+
+  // Plain number (e.g. "6", "3.5")
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    return parseFloat(s);
+  }
+
+  let totalHours = 0;
+  let matched = false;
+
+  // Match components: number followed by a unit word/letter
+  const pattern = /(\d+(?:\.\d+)?)\s*(?:,?\s*(?:and\s+)?)(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
+  let match;
+  while ((match = pattern.exec(s)) !== null) {
+    matched = true;
+    const val = parseFloat(match[1]);
+    const unit = match[2].toLowerCase();
+    if (unit.startsWith('d'))      totalHours += val * 24;
+    else if (unit.startsWith('h')) totalHours += val;
+    else if (unit.startsWith('m') && !unit.startsWith('mo')) totalHours += val / 60;
+    else if (unit.startsWith('s')) totalHours += val / 3600;
+  }
+
+  if (matched && totalHours > 0) {
+    return Math.round(totalHours * 1000) / 1000; // avoid floating-point noise
+  }
+
+  return null;
+}
+
 // ── Slash command definition ───────────────────────────────────────────────
 
 const data = new SlashCommandBuilder()
@@ -82,7 +130,7 @@ const data = new SlashCommandBuilder()
       .setDescription('Record a mob kill')
       .addStringOption(o => o.setName('mob').setDescription('Mob name').setRequired(true).setAutocomplete(true))
       .addStringOption(o => o.setName('time').setDescription('Kill time: now, 14:34, 2:34pm, 2/27 14:34').setRequired(true))
-      .addNumberOption(o => o.setName('lockout').setDescription('Lockout hours (creates mob if unknown)'))
+      .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ'))
   )
   .addSubcommand(sub =>
     sub.setName('status')
@@ -104,13 +152,13 @@ const data = new SlashCommandBuilder()
     sub.setName('mob-add')
       .setDescription('Add a mob to the TOD registry')
       .addStringOption(o => o.setName('name').setDescription('Mob name').setRequired(true))
-      .addNumberOption(o => o.setName('lockout').setDescription('Lockout duration in hours').setRequired(true))
+      .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ').setRequired(true))
   )
   .addSubcommand(sub =>
     sub.setName('mob-edit')
       .setDescription('Change a mob\'s lockout duration')
       .addStringOption(o => o.setName('name').setDescription('Mob name').setRequired(true).setAutocomplete(true))
-      .addNumberOption(o => o.setName('lockout').setDescription('New lockout duration in hours').setRequired(true))
+      .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ').setRequired(true))
   )
   .addSubcommand(sub =>
     sub.setName('mob-remove')
@@ -149,24 +197,29 @@ async function execute(interaction) {
 async function handleRecord(interaction) {
   const mobName = interaction.options.getString('mob');
   const timeStr = interaction.options.getString('time');
-  const lockout = interaction.options.getNumber('lockout');
+  const lockoutStr = interaction.options.getString('lockout');
 
   const killedAt = parseTimestamp(timeStr);
   if (!killedAt) {
     return interaction.reply({ content: '❌ Could not parse time. Use: `now`, `14:34`, `2:34pm`, `2/27 14:34`, or `2026-02-27 14:34`.', flags: 64 });
   }
 
+  const lockoutHours = lockoutStr ? parseLockout(lockoutStr) : null;
+  if (lockoutStr && lockoutHours == null) {
+    return interaction.reply({ content: '❌ Could not parse lockout. Use: `6h`, `2d 18h 3m`, or paste the EQ lockout message.', flags: 64 });
+  }
+
   let mob = db.getTodMob(mobName);
 
-  if (!mob && lockout == null) {
+  if (!mob && lockoutHours == null) {
     return interaction.reply({
-      content: `❌ **${mobName}** is not in the registry. Re-run with the \`lockout\` option to auto-create it:\n\`/tod record mob:${mobName} time:${timeStr} lockout:<hours>\``,
+      content: `❌ **${mobName}** is not in the registry. Re-run with the \`lockout\` option to auto-create it:\n\`/tod record mob:${mobName} time:${timeStr} lockout:6h\``,
       flags: 64,
     });
   }
 
   if (!mob) {
-    db.addTodMob(mobName, lockout, interaction.user.id);
+    db.addTodMob(mobName, lockoutHours, interaction.user.id);
     mob = db.getTodMob(mobName);
   }
 
@@ -298,7 +351,12 @@ async function handleUndo(interaction) {
 
 async function handleMobAdd(interaction) {
   const name = interaction.options.getString('name');
-  const lockout = interaction.options.getNumber('lockout');
+  const lockoutStr = interaction.options.getString('lockout');
+  const lockout = parseLockout(lockoutStr);
+
+  if (lockout == null) {
+    return interaction.reply({ content: '❌ Could not parse lockout. Use: `6h`, `2d 18h 3m`, or paste the EQ lockout message.', flags: 64 });
+  }
 
   const existing = db.getTodMob(name);
   if (existing) {
@@ -311,7 +369,12 @@ async function handleMobAdd(interaction) {
 
 async function handleMobEdit(interaction) {
   const name = interaction.options.getString('name');
-  const lockout = interaction.options.getNumber('lockout');
+  const lockoutStr = interaction.options.getString('lockout');
+  const lockout = parseLockout(lockoutStr);
+
+  if (lockout == null) {
+    return interaction.reply({ content: '❌ Could not parse lockout. Use: `6h`, `2d 18h 3m`, or paste the EQ lockout message.', flags: 64 });
+  }
 
   const mob = db.getTodMob(name);
   if (!mob) return interaction.reply({ content: `❌ Mob **${name}** not found.`, flags: 64 });
