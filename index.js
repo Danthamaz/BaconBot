@@ -87,12 +87,22 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 const ALLOWED_CHANNEL = process.env.CHANNEL_ID || null;
 
 client.on('interactionCreate', async interaction => {
+  // Handle autocomplete interactions
+  if (interaction.isAutocomplete()) {
+    const command = client.commands.get(interaction.commandName);
+    if (command?.autocomplete) await command.autocomplete(interaction);
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
 
-  if (ALLOWED_CHANNEL && interaction.channelId !== ALLOWED_CHANNEL) {
+  const allowedChannels = new Set(
+    [ALLOWED_CHANNEL, ...(command.extraChannels ?? [])].filter(Boolean)
+  );
+  if (ALLOWED_CHANNEL && !allowedChannels.has(interaction.channelId)) {
     return interaction.reply({
       content: `❌ Bot commands are only allowed in <#${ALLOWED_CHANNEL}>.`,
       flags: 64,

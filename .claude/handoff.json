@@ -1,0 +1,158 @@
+{
+  "title": "Onboarding Flow Implementation",
+  "created": "2026-02-27",
+  "status": "approved_not_started",
+  "summary": "Add automated welcome flow for new guild members: welcome embeds in a dedicated channel, character-link nudges, 2-raid loot restriction tracking, and a /guildinfo command.",
+  "decisions": {
+    "welcome_channel": "Dedicated #welcome channel configured via WELCOME_CHANNEL_ID in .env",
+    "guild_info_content": "Hardcoded in lib/welcome.js (edit file + restart to update)",
+    "new_member_tracking": "member_profiles table tracks 2-raid restriction via is_new flag",
+    "screening": "Bot waits for Discord membership screening completion before welcoming"
+  },
+  "files": [
+    {
+      "path": "lib/db.js",
+      "action": "modify",
+      "changes": [
+        {
+          "description": "Add member_profiles table to initSchema()",
+          "sql": "CREATE TABLE IF NOT EXISTS member_profiles (discord_id TEXT PRIMARY KEY, joined_at INTEGER NOT NULL, welcomed_at INTEGER, is_new INTEGER NOT NULL DEFAULT 1);"
+        },
+        {
+          "description": "Add new exported functions",
+          "functions": [
+            {
+              "name": "upsertMemberProfile",
+              "args": ["discordId", "joinedAt"],
+              "purpose": "INSERT OR IGNORE into member_profiles on member join"
+            },
+            {
+              "name": "markWelcomed",
+              "args": ["discordId"],
+              "purpose": "Set welcomed_at = Date.now() for the given discord_id"
+            },
+            {
+              "name": "getMemberProfile",
+              "args": ["discordId"],
+              "purpose": "Return the member_profiles row or null"
+            },
+            {
+              "name": "checkAndUpdateNewStatus",
+              "args": ["discordId"],
+              "purpose": "Count distinct raids attended via linked characters (join player_aliases -> attendance). If >= 2, set is_new = 0. Return boolean (true = still new)."
+            },
+            {
+              "name": "hasLinkedCharacters",
+              "args": ["discordId"],
+              "purpose": "Return true if any player_aliases rows exist for this discord_id"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "lib/welcome.js",
+      "action": "create",
+      "description": "Embed builders for welcome flow. Uses discord.js EmbedBuilder.",
+      "exports": [
+        {
+          "name": "buildWelcomeEmbed",
+          "args": ["member"],
+          "purpose": "Personalized greeting embed with /player link call-to-action and useful commands list"
+        },
+        {
+          "name": "buildRulesEmbed",
+          "args": [],
+          "purpose": "Guild rules, BCGC chat setup instructions, chat color customization"
+        },
+        {
+          "name": "buildLootEmbed",
+          "args": [],
+          "purpose": "Priority vs greed loot rules, 2-raid restriction explanation, Sky/Dozekar special rules"
+        },
+        {
+          "name": "buildRaidInfoEmbed",
+          "args": [],
+          "purpose": "Raid lockout rules, attendance tracking via voice, reference to Discord Events"
+        }
+      ],
+      "content_notes": "Content should be drawn from guild-info, loot-info, raid-info channel knowledge. Use placeholder text where specific guild rules are unknown — user will fill in."
+    },
+    {
+      "path": "index.js",
+      "action": "modify",
+      "changes": [
+        {
+          "description": "Add GatewayIntentBits.GuildMembers to intents array (line ~21)",
+          "location": "intents array in Client constructor"
+        },
+        {
+          "description": "Read WELCOME_CHANNEL_ID from process.env",
+          "location": "near ALLOWED_CHANNEL declaration (~line 87)"
+        },
+        {
+          "description": "Import welcome embed builders and new db functions",
+          "location": "top of file with other requires"
+        },
+        {
+          "description": "Add guildMemberAdd event handler",
+          "logic": "Call upsertMemberProfile(). If member.pending is true, return early. Otherwise send welcome embeds to #welcome channel and call markWelcomed()."
+        },
+        {
+          "description": "Add guildMemberUpdate event handler",
+          "logic": "Detect oldMember.pending === true && newMember.pending === false. Send welcome embeds to #welcome channel and call markWelcomed()."
+        },
+        {
+          "description": "Add character-link nudge in interactionCreate handler",
+          "location": "After command.execute(interaction) succeeds (~line 103)",
+          "logic": "If user has a member_profiles row but hasLinkedCharacters() is false, and command is not 'player', send ephemeral followUp reminder to use /player link."
+        }
+      ]
+    },
+    {
+      "path": "commands/guildinfo.js",
+      "action": "create",
+      "description": "New /guildinfo [topic] command. Optional topic choice: rules, loot, raids. Default: show all. Uses embed builders from lib/welcome.js. Replies ephemeral.",
+      "pattern": "Follow same module.exports = { data: SlashCommandBuilder, execute(interaction) } pattern as other commands."
+    },
+    {
+      "path": "commands/loot.js",
+      "action": "modify",
+      "changes": [
+        {
+          "description": "In /loot player response, add new-member indicator",
+          "location": "After building the embed in the 'player' subcommand block (~line 166-170)",
+          "logic": "Resolve the target user's discord_id. Call checkAndUpdateNewStatus(discordId). If still new (true), add a field to the embed: name='New Member', value='Greed rolls only (attended fewer than 2 raids)'.",
+          "notes": "Need to import checkAndUpdateNewStatus and getDiscordInfoForChar is already imported. For discordUser path, use discordUser.id directly. For charName path, use info.discord_id if available."
+        }
+      ]
+    },
+    {
+      "path": ".env.example",
+      "action": "modify",
+      "changes": [
+        {
+          "description": "Add WELCOME_CHANNEL_ID= line",
+          "location": "After ALERT_CHANNEL_ID line"
+        }
+      ]
+    }
+  ],
+  "manual_steps": [
+    "Enable SERVER MEMBERS INTENT in Discord Developer Portal",
+    "Create #welcome channel (read-only for members, bot has Send Messages + Embed Links)",
+    "Set WELCOME_CHANNEL_ID in .env on Oracle VM",
+    "Run npm run deploy to register /guildinfo command",
+    "Restart the bot"
+  ],
+  "verification": [
+    "Set up test #welcome channel and configure its ID in .env",
+    "Have someone join the server — after accepting screening, welcome embeds appear in #welcome",
+    "/guildinfo — shows all three info sections ephemerally",
+    "/guildinfo topic:loot — shows just the loot embed",
+    "Run any command without linking a character — ephemeral nudge appears",
+    "/player link character:TestChar — nudge stops appearing",
+    "/loot player for user with <2 raids — shows 'new member' note",
+    "/loot player for user with 2+ raids — no note"
+  ]
+}
