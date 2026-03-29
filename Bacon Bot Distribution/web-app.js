@@ -435,6 +435,18 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // ── POST /api/live/loot ─────────────────────────────────────
+    if (req.method === 'POST' && route === '/api/live/loot') {
+      if (!liveWatcher) return json(400, { error: 'Live mode not running' });
+      const body = JSON.parse(await readBody(req));
+      const { index, awardedTo } = body;
+      if (index === undefined) return json(400, { error: 'index is required' });
+      const ok = liveWatcher.updateLoot(index, awardedTo || null);
+      if (!ok) return json(404, { error: 'Invalid loot index' });
+      liveClients.forEach(c => sseSend(c, 'loot-update', { index, awardedTo: awardedTo || null }));
+      return json(200, { index, awardedTo: awardedTo || null });
+    }
+
     // ── POST /api/live/zone ─────────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/zone') {
       if (!liveWatcher) return json(400, { error: 'Live mode not running' });

@@ -496,8 +496,44 @@ textarea:focus { outline: none; border-color: var(--accent); }
   padding: 3px 0;
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
-.loot-item .loot-player { color: var(--blue); }
-.loot-item .loot-name   { color: var(--amber); }
+.loot-item .loot-player {
+  color: var(--blue);
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+}
+.loot-item .loot-player:hover { border-bottom-color: var(--blue); }
+.loot-item .loot-original {
+  color: var(--text-dim);
+  text-decoration: line-through;
+  cursor: default;
+  border-bottom: none;
+}
+.loot-item .loot-arrow { color: var(--text-dim); font-size: 11px; }
+.loot-item .loot-awarded {
+  color: var(--green);
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+}
+.loot-item .loot-awarded:hover { border-bottom-color: var(--green); }
+.loot-item .loot-undo {
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  margin-left: 4px;
+}
+.loot-item .loot-undo:hover { color: var(--red); }
+.loot-item .loot-name { color: var(--amber); }
+
+.loot-edit-input {
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+  width: 120px;
+}
 
 /* ── Footer / Status Bar ──────────────────────────────────────────────── */
 footer {

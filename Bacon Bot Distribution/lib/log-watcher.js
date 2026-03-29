@@ -234,6 +234,16 @@ class LogWatcher extends EventEmitter {
     };
   }
 
+  updateLoot(index, awardedTo) {
+    if (index < 0 || index >= this.lootEvents.length) return false;
+    if (awardedTo) {
+      this.lootEvents[index].awardedTo = awardedTo;
+    } else {
+      delete this.lootEvents[index].awardedTo;
+    }
+    return true;
+  }
+
   setZone(zoneName) {
     this.currentZone = zoneName;
     this.zones.add(zoneName);

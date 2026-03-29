@@ -1,5 +1,39 @@
 {
   "character": "Lyri",
   "timezone": "America/Phoenix",
-  "eqFolder": "C:\\Apps\\TAKPv22"
+  "eqFolder": "C:\\Apps\\TAKPv22",
+  "raidDays": [
+    0,
+    3,
+    5,
+    6
+  ],
+  "raidStartUTC": 12,
+  "raidEndUTC": 17,
+  "approvedZones": [
+    "Plane of Fear",
+    "Plane of Hate",
+    "Sebilis",
+    "Katta Castellum",
+    "Kedge Keep",
+    "Nagafen's Lair",
+    "Permafrost",
+    "Veeshan's Peak",
+    "Timorous Deep",
+    "Dreadlands",
+    "Chardok",
+    "Dragon Necropolis",
+    "Kael Drakkel",
+    "Temple of Veeshan",
+    "Thurgadin",
+    "Akheva Ruins",
+    "Greig's End",
+    "Acrylia Caverns",
+    "Ssraeshza Temple",
+    "Umbral Plains",
+    "Vex Thal",
+    "The Deep",
+    "The Dreadlands",
+    "Sleeper's Tomb"
+  ]
 }

@@ -57,7 +57,7 @@ async function loadConfig() {
     $('cfg-raid-end').value   = config.raidEndUTC ?? 17;
 
     // Approved zones
-    $('cfg-zones').value = (config.approvedZones || []).join('\n');
+    $('cfg-zones').value = (config.approvedZones || []).slice().sort((a, b) => a.localeCompare(b)).join('\n');
 
     updateStatusBar();
 
@@ -92,7 +92,8 @@ async function saveSettings() {
   config.approvedZones = $('cfg-zones').value
     .split('\n')
     .map(z => z.trim())
-    .filter(z => z.length > 0);
+    .filter(z => z.length > 0)
+    .sort((a, b) => a.localeCompare(b));
 
   try {
     await fetch('/api/config', {
@@ -461,7 +462,7 @@ function startLive() {
   // Populate zone override dropdown from approved zones
   const sel = $('live-zone-select');
   sel.innerHTML = '<option value="">-- Override Zone --</option>';
-  for (const z of (config.approvedZones || [])) {
+  for (const z of (config.approvedZones || []).slice().sort((a, b) => a.localeCompare(b))) {
     const opt = document.createElement('option');
     opt.value = z;
     opt.textContent = z;
@@ -506,12 +507,25 @@ function startLive() {
   liveSource.addEventListener('loot', e => {
     const d = JSON.parse(e.data);
     const count = parseInt($('live-loot-count').textContent, 10) + 1;
+    const idx = count - 1;
     $('live-loot-count').textContent = count;
     const div = document.createElement('div');
     div.className = 'loot-item';
-    div.innerHTML = `<span class="loot-player">${d.playerName || '?'}</span> looted <span class="loot-name">${d.itemName}</span>`;
+    div.dataset.index = idx;
+    div.dataset.looter = d.playerName || '?';
+    div.innerHTML = renderLootEntry(idx, d.playerName || '?', null, d.itemName);
     $('live-loot').appendChild(div);
     $('live-loot').scrollTop = $('live-loot').scrollHeight;
+  });
+
+  liveSource.addEventListener('loot-update', e => {
+    const d = JSON.parse(e.data);
+    const div = $('live-loot').querySelector(`[data-index="${d.index}"]`);
+    if (!div) return;
+    const looter = div.dataset.looter;
+    const itemEl = div.querySelector('.loot-name');
+    const itemName = itemEl ? itemEl.textContent : '';
+    div.innerHTML = renderLootEntry(d.index, looter, d.awardedTo, itemName);
   });
 
   liveSource.addEventListener('autosave', e => {
@@ -556,6 +570,90 @@ function cleanupLive() {
   $('btn-live-toggle').textContent = 'Start Watching';
   $('live-status').classList.add('hidden');
 }
+
+function renderLootEntry(index, looter, awardedTo, itemName) {
+  if (awardedTo && awardedTo !== looter) {
+    return `<span class="loot-player loot-original">${looter}</span> ` +
+      `<span class="loot-arrow">\u2192</span> ` +
+      `<span class="loot-awarded" title="Click to change" onclick="editLootPlayer(${index})">${awardedTo}</span> ` +
+      `looted <span class="loot-name">${itemName}</span>` +
+      `<span class="loot-undo" title="Undo reassign" onclick="undoLootPlayer(${index})"> \u2715</span>`;
+  }
+  return `<span class="loot-player" title="Click to reassign" onclick="editLootPlayer(${index})">${looter}</span> ` +
+    `looted <span class="loot-name">${itemName}</span>`;
+}
+
+window.editLootPlayer = async function(index) {
+  const div = $('live-loot').querySelector(`[data-index="${index}"]`);
+  if (!div) return;
+  const clickedEl = div.querySelector('.loot-awarded') || div.querySelector('.loot-player');
+  const currentAwarded = div.querySelector('.loot-awarded')?.textContent || '';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = currentAwarded;
+  input.placeholder = 'Awarded to...';
+  input.className = 'loot-edit-input';
+  clickedEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let committed = false;
+  async function commit() {
+    if (committed) return;
+    committed = true;
+    const newName = input.value.trim();
+    const looter = div.dataset.looter;
+    const itemEl = div.querySelector('.loot-name');
+    const itemName = itemEl ? itemEl.textContent : '';
+
+    if (!newName || newName === looter) {
+      // Clear awardedTo — revert to original
+      div.innerHTML = renderLootEntry(index, looter, null, itemName);
+      if (newName === looter) {
+        try {
+          await fetch('/api/live/loot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index, awardedTo: '' }),
+          });
+        } catch {}
+      }
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/live/loot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index, awardedTo: newName }),
+      });
+      if (!res.ok) { alert('Failed to update loot'); return; }
+    } catch {
+      alert('Failed to update loot');
+      return;
+    }
+    div.innerHTML = renderLootEntry(index, looter, newName, itemName);
+  }
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') commit();
+    if (e.key === 'Escape') { input.value = ''; commit(); }
+  });
+  input.addEventListener('blur', commit);
+};
+
+window.undoLootPlayer = async function(index) {
+  try {
+    await fetch('/api/live/loot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index, awardedTo: '' }),
+    });
+  } catch {
+    alert('Failed to undo');
+  }
+};
 
 async function uploadLiveSession() {
   try {
