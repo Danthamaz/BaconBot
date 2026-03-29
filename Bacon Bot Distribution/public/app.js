@@ -404,6 +404,25 @@ async function uploadSelected() {
 function setupLive() {
   $('btn-live-toggle').addEventListener('click', toggleLive);
   $('btn-live-upload').addEventListener('click', uploadLiveSession);
+  $('btn-zone-override').addEventListener('click', overrideZone);
+}
+
+async function overrideZone() {
+  const zone = $('live-zone-select').value;
+  if (!zone) return;
+  try {
+    const res = await fetch('/api/live/zone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zone }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'Failed to set zone');
+    }
+  } catch {
+    alert('Failed to set zone');
+  }
 }
 
 function toggleLive() {
@@ -438,6 +457,16 @@ function startLive() {
   $('live-loot').innerHTML = '';
   $('live-attend-count').textContent = '0';
   $('live-loot-count').textContent = '0';
+
+  // Populate zone override dropdown from approved zones
+  const sel = $('live-zone-select');
+  sel.innerHTML = '<option value="">-- Override Zone --</option>';
+  for (const z of (config.approvedZones || [])) {
+    const opt = document.createElement('option');
+    opt.value = z;
+    opt.textContent = z;
+    sel.appendChild(opt);
+  }
 
   liveSource.addEventListener('started', () => {
     $('live-status-text').textContent = 'Watching for changes...';
@@ -483,6 +512,19 @@ function startLive() {
     div.innerHTML = `<span class="loot-player">${d.playerName || '?'}</span> looted <span class="loot-name">${d.itemName}</span>`;
     $('live-loot').appendChild(div);
     $('live-loot').scrollTop = $('live-loot').scrollHeight;
+  });
+
+  liveSource.addEventListener('autosave', e => {
+    const d = JSON.parse(e.data);
+    const el = $('live-autosave-status');
+    const time = new Date(d.timestamp).toLocaleTimeString();
+    if (d.success) {
+      el.textContent = `Auto-saved to Raid #${d.raidId} at ${time}`;
+      el.className = 'autosave-status success';
+    } else {
+      el.textContent = `Auto-save failed at ${time}`;
+      el.className = 'autosave-status error';
+    }
   });
 
   liveSource.addEventListener('stopped', () => {

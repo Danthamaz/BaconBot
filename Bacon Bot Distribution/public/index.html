@@ -63,6 +63,7 @@
         <div class="live-indicator">
           <span class="pulse"></span>
           <span id="live-status-text">Watching...</span>
+          <span id="live-autosave-status" class="autosave-status"></span>
         </div>
       </div>
 
@@ -70,6 +71,12 @@
         <div class="live-panel">
           <h3>Current Zone</h3>
           <div id="live-zone" class="live-value">--</div>
+          <div class="zone-override">
+            <select id="live-zone-select">
+              <option value="">-- Override Zone --</option>
+            </select>
+            <button id="btn-zone-override" class="btn-secondary btn-sm">Set</button>
+          </div>
         </div>
         <div class="live-panel">
           <h3>Attendance <span id="live-attend-count" class="badge">0</span></h3>

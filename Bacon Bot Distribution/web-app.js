@@ -158,8 +158,72 @@ function sseSend(res, event, data) {
 
 // ── Live watcher state ──────────────────────────────────────────────────────
 
-let liveWatcher = null;
-let liveClients = [];
+let liveWatcher  = null;
+let liveClients  = [];
+let autoSaveTimer = null;
+const AUTO_SAVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+async function autoSaveLiveSession() {
+  if (!liveWatcher || !apiKey) return;
+  const session = liveWatcher.getSessionData();
+  if (session.attendance.length === 0 && session.loot.length === 0) return;
+
+  const cfg     = loadConfig();
+  const zoneStr  = session.zones.join(', ');
+  const autoName = `${session.date} ${session.dayName} - ${session.zones.slice(0, 2).join(', ')}`;
+
+  try {
+    let existingRaid = null;
+    try {
+      const lookup = await apiGet(`${serverUrl}/raid?date=${session.date}`, apiKey);
+      if (lookup.status === 200) existingRaid = lookup.body.raid;
+    } catch {}
+
+    let result;
+    if (existingRaid) {
+      result = await apiPost(`${serverUrl}/raid/merge?id=${existingRaid.id}`, {
+        attendance: session.attendance,
+        loot:       session.loot,
+      }, apiKey);
+    } else {
+      result = await apiPost(`${serverUrl}/raid`, {
+        raid: {
+          name:          autoName,
+          zone:          zoneStr,
+          startTime:     session.firstSeen,
+          endTime:       session.lastSeen,
+          characterName: cfg.character || null,
+          submittedBy:   'web-app-autosave',
+        },
+        attendance: session.attendance,
+        loot:       session.loot,
+      }, apiKey);
+    }
+
+    const ok = result.status === 200;
+    const raidId = ok ? (result.body.raidId || existingRaid?.id) : null;
+    liveClients.forEach(c => sseSend(c, 'autosave', {
+      success: ok,
+      raidId,
+      timestamp: new Date().toISOString(),
+    }));
+  } catch (err) {
+    liveClients.forEach(c => sseSend(c, 'autosave', {
+      success: false,
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    }));
+  }
+}
+
+function startAutoSave() {
+  stopAutoSave();
+  autoSaveTimer = setInterval(autoSaveLiveSession, AUTO_SAVE_INTERVAL);
+}
+
+function stopAutoSave() {
+  if (autoSaveTimer) { clearInterval(autoSaveTimer); autoSaveTimer = null; }
+}
 
 // ── Route handler ───────────────────────────────────────────────────────────
 
@@ -359,6 +423,7 @@ async function handleRequest(req, res) {
         });
 
         liveWatcher.start();
+        startAutoSave();
       }
 
       liveClients.push(res);
@@ -370,9 +435,22 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // ── POST /api/live/zone ─────────────────────────────────────
+    if (req.method === 'POST' && route === '/api/live/zone') {
+      if (!liveWatcher) return json(400, { error: 'Live mode not running' });
+      const body = JSON.parse(await readBody(req));
+      const zone = body.zone;
+      if (!zone) return json(400, { error: 'zone is required' });
+      liveWatcher.setZone(zone);
+      return json(200, { zone });
+    }
+
     // ── POST /api/live/stop ─────────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/stop') {
       if (liveWatcher) {
+        // Final save before stopping
+        await autoSaveLiveSession();
+        stopAutoSave();
         liveWatcher.stop();
         liveWatcher = null;
         liveClients.forEach(c => {

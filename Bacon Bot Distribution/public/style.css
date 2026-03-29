@@ -454,6 +454,24 @@ textarea:focus { outline: none; border-color: var(--accent); }
   font-family: monospace;
 }
 
+.zone-override {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.zone-override select {
+  flex: 1;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 .live-scroll {
   max-height: 250px;
   overflow-y: auto;
@@ -465,6 +483,14 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .live-scroll::-webkit-scrollbar { width: 6px; }
 .live-scroll::-webkit-scrollbar-track { background: var(--bg); }
 .live-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.autosave-status {
+  font-size: 11px;
+  font-weight: normal;
+  margin-left: auto;
+}
+.autosave-status.success { color: var(--green); }
+.autosave-status.error   { color: var(--red); }
 
 .loot-item {
   padding: 3px 0;

@@ -33,8 +33,8 @@ const WHO_FOOTER_RE = /^There are \d+ players in (.+)\.$/;
 const WHO_PLAYER_RE = /^\[(\d+ [^\]]+|ANONYMOUS)\] ([\w`'-]+)(?:\s+\(([^)]+)\))?(?:\s+<([^>]+)>)?/;
 
 // Loot events
-const SELF_LOOT_RE  = /^--You have looted a (.+?)\.--$/;
-const OTHER_LOOT_RE = /^--([\w`'-]+) has looted a (.+?)\.--$/;
+const SELF_LOOT_RE  = /^--You have looted an? (.+?)\s*\.--$/;
+const OTHER_LOOT_RE = /^--([\w`'-]+) has looted an? (.+?)\s*\.--$/;
 
 // --- Month lookup for manual timestamp parsing ---
 const MONTHS = {

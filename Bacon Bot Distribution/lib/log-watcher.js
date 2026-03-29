@@ -9,8 +9,8 @@ const LINE_RE        = /^\[(\w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4})\] (.*)
 const ZONE_ENTRY_RE  = /^You have entered (.+)\.$/;
 const WHO_FOOTER_RE  = /^There are \d+ players in (.+)\.$/;
 const WHO_PLAYER_RE  = /^\[(\d+ [^\]]+|ANONYMOUS)\] ([\w`'-]+)(?:\s+\(([^)]+)\))?(?:\s+<([^>]+)>)?/;
-const SELF_LOOT_RE   = /^--You have looted a (.+?)\.--$/;
-const OTHER_LOOT_RE  = /^--([\w`'-]+) has looted a (.+?)\.--$/;
+const SELF_LOOT_RE   = /^--You have looted an? (.+?)\s*\.--$/;
+const OTHER_LOOT_RE  = /^--([\w`'-]+) has looted an? (.+?)\s*\.--$/;
 
 function normalizeZone(name) {
   return name.toLowerCase().replace(/^the\s+/, '').trim();
@@ -125,13 +125,11 @@ class LogWatcher extends EventEmitter {
       return;
     }
 
-    // /who block start — only process if in raid window
+    // /who block start
     if (content === 'Players on EverQuest:') {
-      if (this._isInRaidWindow(utcTs)) {
-        this.inWhoBlock  = true;
-        this.whoBlockUTC = utcTs;
-        this.whoPlayers  = [];
-      }
+      this.inWhoBlock  = true;
+      this.whoBlockUTC = utcTs;
+      this.whoPlayers  = [];
       return;
     }
 
@@ -183,8 +181,8 @@ class LogWatcher extends EventEmitter {
       return;
     }
 
-    // Loot — only during raid window in an approved zone
-    if (!this._isInRaidWindow(utcTs) || !this._isApprovedZone(this.currentZone)) return;
+    // Loot — only in an approved zone
+    if (!this._isApprovedZone(this.currentZone)) return;
 
     // Loot — self
     const selfLoot = content.match(SELF_LOOT_RE);
@@ -234,6 +232,12 @@ class LogWatcher extends EventEmitter {
       firstSeen:  firstSeen.toISOString(),
       lastSeen:   lastSeen.toISOString(),
     };
+  }
+
+  setZone(zoneName) {
+    this.currentZone = zoneName;
+    this.zones.add(zoneName);
+    this.emit('zone', { zone: zoneName, timestamp: new Date().toISOString() });
   }
 
   stop() {
