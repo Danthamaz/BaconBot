@@ -150,18 +150,24 @@ class LogWatcher extends EventEmitter {
           const key = p.name.toLowerCase();
           const existing = this.attendanceMap.get(key);
           if (!existing) {
-            this.attendanceMap.set(key, { ...p, firstSeen: this.whoBlockUTC, lastSeen: this.whoBlockUTC });
+            this.attendanceMap.set(key, { ...p, firstSeen: this.whoBlockUTC, lastSeen: this.whoBlockUTC, validated: false });
             newPlayers.push(p);
-          } else {
-            if (this.whoBlockUTC > existing.lastSeen) existing.lastSeen = this.whoBlockUTC;
           }
+          // lastSeen is only updated via validatePlayers() when both in-zone and in-voice
         }
+
+        const allPlayersWithTime = Array.from(this.attendanceMap.entries()).map(([name, data]) => ({
+          name,
+          lastSeen: data.lastSeen.toISOString(),
+          exitTime: data.exitTime ? data.exitTime.toISOString() : null,
+          validated: !!data.validated,
+        }));
 
         this.emit('attendance', {
           zone:       whoZone,
           total:      this.attendanceMap.size,
           newPlayers,
-          allPlayers: Array.from(this.attendanceMap.keys()),
+          allPlayers: allPlayersWithTime,
           timestamp:  this.whoBlockUTC.toISOString(),
         });
         return;
@@ -232,6 +238,43 @@ class LogWatcher extends EventEmitter {
       firstSeen:  firstSeen.toISOString(),
       lastSeen:   lastSeen.toISOString(),
     };
+  }
+
+  /**
+   * Update lastSeen only for players confirmed in both zone and voice.
+   * @param {Set<string>} voiceConfirmedNames — lowercased character names confirmed in voice
+   */
+  validatePlayers(voiceConfirmedNames) {
+    const now = new Date();
+    for (const [key, data] of this.attendanceMap) {
+      if (voiceConfirmedNames.has(key)) {
+        data.lastSeen = now;
+        data.validated = true;
+      }
+    }
+  }
+
+  removePlayer(name) {
+    const key = name.toLowerCase();
+    if (!this.attendanceMap.has(key)) return false;
+    this.attendanceMap.delete(key);
+    return true;
+  }
+
+  markPlayerExited(name) {
+    const key = name.toLowerCase();
+    const player = this.attendanceMap.get(key);
+    if (!player) return false;
+    player.exitTime = new Date();
+    return true;
+  }
+
+  clearPlayerExit(name) {
+    const key = name.toLowerCase();
+    const player = this.attendanceMap.get(key);
+    if (!player) return false;
+    delete player.exitTime;
+    return true;
   }
 
   updateLoot(index, awardedTo) {

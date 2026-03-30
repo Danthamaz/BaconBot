@@ -160,6 +160,7 @@ function sseSend(res, event, data) {
 
 let liveWatcher  = null;
 let liveClients  = [];
+let liveDevMode  = false;
 let autoSaveTimer = null;
 const AUTO_SAVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -320,6 +321,7 @@ async function handleRequest(req, res) {
 
     // ── POST /api/submit ────────────────────────────────────────
     if (req.method === 'POST' && route === '/api/submit') {
+      if (liveDevMode) return json(200, { action: 'dev-mode', message: 'Skipped — dev mode active' });
       if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
 
       const body = JSON.parse(await readBody(req));
@@ -388,17 +390,44 @@ async function handleRequest(req, res) {
       }
     }
 
+    // ── POST /api/link-character ─────────────────────────────────
+    if (req.method === 'POST' && route === '/api/link-character') {
+      if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
+      try {
+        const body = JSON.parse(await readBody(req));
+        const result = await apiPost(`${serverUrl}/link-character`, body, apiKey);
+        return json(result.status, result.body);
+      } catch (err) {
+        return json(502, { error: err.message });
+      }
+    }
+
+    // ── GET /api/character-info ────────────────────────────────────
+    if (req.method === 'GET' && route === '/api/character-info') {
+      if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
+      const name = url.searchParams.get('name');
+      if (!name) return json(400, { error: 'name required' });
+      try {
+        const result = await apiGet(`${serverUrl}/character-info?name=${encodeURIComponent(name)}`, apiKey);
+        return json(result.status, result.body);
+      } catch (err) {
+        return json(502, { error: err.message });
+      }
+    }
+
     // ── GET /api/live (SSE) ─────────────────────────────────────
     if (req.method === 'GET' && route === '/api/live') {
       const file     = url.searchParams.get('file');
       const timezone = url.searchParams.get('timezone');
       const character = url.searchParams.get('character');
+      const devMode  = url.searchParams.get('devMode') === '1';
       if (!file || !timezone) return json(400, { error: 'file and timezone required' });
 
       sseHeaders(res);
 
       // If no watcher running, start one
       if (!liveWatcher) {
+        liveDevMode = devMode;
         const cfg = loadConfig();
         const LogWatcher = require('./lib/log-watcher');
         liveWatcher = new LogWatcher({
@@ -412,8 +441,29 @@ async function handleRequest(req, res) {
         liveWatcher.on('zone', data => {
           liveClients.forEach(c => sseSend(c, 'zone', data));
         });
-        liveWatcher.on('attendance', data => {
-          liveClients.forEach(c => sseSend(c, 'attendance', data));
+        liveWatcher.on('attendance', async data => {
+          // Fetch voice members and validate attendance
+          try {
+            const voiceResult = await apiGet(`${serverUrl}/voice-members`, apiKey);
+            if (voiceResult.status === 200 && voiceResult.body.members) {
+              const voiceConfirmed = new Set();
+              for (const vm of voiceResult.body.members) {
+                if (vm.character) voiceConfirmed.add(vm.character.toLowerCase());
+              }
+              // Only update lastSeen for players in both zone and voice
+              liveWatcher.validatePlayers(voiceConfirmed);
+            }
+          } catch {}
+
+          // Re-build the player list after validation
+          const allPlayersWithTime = Array.from(liveWatcher.attendanceMap.entries()).map(([name, d]) => ({
+            name,
+            lastSeen: d.lastSeen.toISOString(),
+            exitTime: d.exitTime ? d.exitTime.toISOString() : null,
+            validated: !!d.validated,
+          }));
+          const updated = { ...data, allPlayers: allPlayersWithTime };
+          liveClients.forEach(c => sseSend(c, 'attendance', updated));
         });
         liveWatcher.on('loot', data => {
           liveClients.forEach(c => sseSend(c, 'loot', data));
@@ -423,7 +473,7 @@ async function handleRequest(req, res) {
         });
 
         liveWatcher.start();
-        startAutoSave();
+        if (!liveDevMode) startAutoSave();
       }
 
       liveClients.push(res);
@@ -433,6 +483,37 @@ async function handleRequest(req, res) {
         liveClients = liveClients.filter(c => c !== res);
       });
       return;
+    }
+
+    // ── POST /api/live/attendance ────────────────────────────────
+    if (req.method === 'POST' && route === '/api/live/attendance') {
+      if (!liveWatcher) return json(400, { error: 'Live mode not running' });
+      const body = JSON.parse(await readBody(req));
+      const { name, action } = body;
+      if (!name || !action) return json(400, { error: 'name and action required' });
+
+      let ok = false;
+      if (action === 'remove') {
+        ok = liveWatcher.removePlayer(name);
+      } else if (action === 'exit') {
+        ok = liveWatcher.markPlayerExited(name);
+      } else if (action === 'clear-exit') {
+        ok = liveWatcher.clearPlayerExit(name);
+      }
+      if (!ok) return json(404, { error: 'Player not found' });
+
+      // Broadcast updated attendance list
+      const allPlayersWithTime = Array.from(liveWatcher.attendanceMap.entries()).map(([n, data]) => ({
+        name: n,
+        lastSeen: data.lastSeen.toISOString(),
+        exitTime: data.exitTime ? data.exitTime.toISOString() : null,
+        validated: !!data.validated,
+      }));
+      liveClients.forEach(c => sseSend(c, 'attendance-update', {
+        total: liveWatcher.attendanceMap.size,
+        allPlayers: allPlayersWithTime,
+      }));
+      return json(200, { ok: true });
     }
 
     // ── POST /api/live/loot ─────────────────────────────────────
@@ -460,11 +541,11 @@ async function handleRequest(req, res) {
     // ── POST /api/live/stop ─────────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/stop') {
       if (liveWatcher) {
-        // Final save before stopping
-        await autoSaveLiveSession();
+        if (!liveDevMode) await autoSaveLiveSession();
         stopAutoSave();
         liveWatcher.stop();
         liveWatcher = null;
+        liveDevMode = false;
         liveClients.forEach(c => {
           sseSend(c, 'stopped', {});
           c.end();

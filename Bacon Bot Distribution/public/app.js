@@ -7,6 +7,7 @@ let sessions     = [];
 let voiceMembers = null; // null = not fetched, [] = fetched but empty
 let liveSource   = null;
 let liveRunning  = false;
+let voiceInterval = null;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -406,6 +407,7 @@ function setupLive() {
   $('btn-live-toggle').addEventListener('click', toggleLive);
   $('btn-live-upload').addEventListener('click', uploadLiveSession);
   $('btn-zone-override').addEventListener('click', overrideZone);
+  $('btn-voice-refresh').addEventListener('click', refreshVoicePanel);
 }
 
 async function overrideZone() {
@@ -440,24 +442,38 @@ function startLive() {
     return;
   }
 
+  const devMode = $('chk-dev-mode').checked;
   const params = new URLSearchParams({
     file:      logFile,
     timezone:  config.timezone,
     character: config.character,
   });
+  if (devMode) params.set('devMode', '1');
 
   liveSource = new EventSource('/api/live?' + params.toString());
   liveRunning = true;
 
   $('btn-live-toggle').textContent = 'Stop Watching';
+  $('chk-dev-mode').disabled = true;
+  $('zone-inline').classList.remove('hidden');
   $('live-status').classList.remove('hidden');
   $('live-panels').classList.remove('hidden');
-  $('btn-live-upload').classList.remove('hidden');
+  if (devMode) {
+    $('btn-live-upload').classList.add('hidden');
+    $('live-status-text').textContent = 'Watching (Dev Mode — not saving)...';
+  } else {
+    $('btn-live-upload').classList.remove('hidden');
+    $('live-status-text').textContent = 'Watching...';
+  }
   $('live-zone').textContent = '--';
   $('live-attendance').innerHTML = '';
+  $('live-unlinked').innerHTML = '';
   $('live-loot').innerHTML = '';
   $('live-attend-count').textContent = '0';
+  $('live-unlinked-count').textContent = '0';
   $('live-loot-count').textContent = '0';
+  $('live-voice-count').textContent = '0';
+  $('live-voice').innerHTML = '';
 
   // Populate zone override dropdown from approved zones
   const sel = $('live-zone-select');
@@ -471,6 +487,8 @@ function startLive() {
 
   liveSource.addEventListener('started', () => {
     $('live-status-text').textContent = 'Watching for changes...';
+    refreshVoicePanel();
+    voiceInterval = setInterval(refreshVoicePanel, 30000);
   });
 
   liveSource.addEventListener('zone', e => {
@@ -480,28 +498,14 @@ function startLive() {
 
   liveSource.addEventListener('attendance', async e => {
     const d = JSON.parse(e.data);
-    $('live-attend-count').textContent = d.total;
-
-    // Fetch voice members to cross-reference
     await fetchVoiceMembers();
-    const voiceNames = new Set();
-    if (voiceMembers) {
-      for (const vm of voiceMembers) {
-        if (vm.character) voiceNames.add(vm.character.toLowerCase());
-        voiceNames.add(vm.displayName.toLowerCase());
-      }
-    }
+    await renderSplitAttendance(d.allPlayers);
+    refreshVoicePanel();
+  });
 
-    const hasVoice = voiceMembers !== null;
-    $('live-attendance').innerHTML = d.allPlayers.map(p => {
-      const inVoice = hasVoice && voiceNames.has(p.toLowerCase());
-      const dot = hasVoice ? `<span class="dot ${inVoice ? 'green' : 'red'}"></span> ` : '';
-      const cls = hasVoice && !inVoice ? 'style="opacity:0.4"' : '';
-      return `<div ${cls}>${dot}${p}</div>`;
-    }).join('');
-
-    const el = $('live-attendance');
-    el.scrollTop = el.scrollHeight;
+  liveSource.addEventListener('attendance-update', async e => {
+    const d = JSON.parse(e.data);
+    await renderSplitAttendance(d.allPlayers);
   });
 
   liveSource.addEventListener('loot', e => {
@@ -564,11 +568,185 @@ async function stopLive() {
   cleanupLive();
 }
 
+async function renderSplitAttendance(players) {
+  // Build voice lookup
+  const voiceNames = new Set();
+  const discordMap = new Map();
+  if (voiceMembers) {
+    for (const vm of voiceMembers) {
+      if (vm.character) {
+        voiceNames.add(vm.character.toLowerCase());
+        discordMap.set(vm.character.toLowerCase(), vm.displayName);
+      }
+    }
+  }
+
+  const linked = [];
+  const unlinked = [];
+
+  for (const p of players) {
+    const key = p.name.toLowerCase();
+    const discordName = discordMap.get(key) || null;
+    const inVoice = voiceNames.has(key);
+    if (discordName) {
+      linked.push({ ...p, discordName, inVoice, validated: !!p.validated });
+    } else {
+      unlinked.push(p);
+    }
+  }
+
+  $('live-attend-count').textContent = linked.length;
+  $('live-unlinked-count').textContent = unlinked.length;
+
+  // Render linked attendance
+  $('live-attendance').innerHTML = linked.map(p => {
+    const exited = p.exitTime != null;
+    const time = exited
+      ? new Date(p.exitTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : new Date(p.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const exitClass = exited ? ' attend-exited' : '';
+    const exitLabel = exited ? 'exited ' : '';
+    // Green = in zone + in voice (validated), amber = in zone but not voice, red = not validated yet
+    const dotColor = p.validated && p.inVoice ? 'green' : p.inVoice ? 'amber' : 'red';
+    const dotTitle = p.validated && p.inVoice ? 'In zone + voice' : p.inVoice ? 'In voice, not confirmed in zone' : 'Not in voice';
+    const dot = `<span class="dot ${dotColor}" title="${dotTitle}"></span> `;
+    const exitBtn = exited
+      ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${p.name}','clear-exit')">\u21a9</span>`
+      : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${p.name}','exit')">\u23f9</span>`;
+    const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${p.name}','remove')">\u2715</span>`;
+    const discordTag = `<span class="attend-discord">${p.discordName}</span>`;
+    const staleClass = !p.validated && !exited ? ' attend-stale' : '';
+    return `<div class="attend-row${exitClass}${staleClass}">${dot}<span class="attend-name">${p.name}</span>${discordTag}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
+  }).join('');
+
+  // Render unlinked players
+  $('live-unlinked').innerHTML = unlinked.map(p => {
+    const exited = p.exitTime != null;
+    const time = exited
+      ? new Date(p.exitTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : new Date(p.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const exitClass = exited ? ' attend-exited' : '';
+    const exitLabel = exited ? 'exited ' : '';
+    const exitBtn = exited
+      ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${p.name}','clear-exit')">\u21a9</span>`
+      : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${p.name}','exit')">\u23f9</span>`;
+    const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${p.name}','remove')">\u2715</span>`;
+    const linkBtn = `<span class="attend-link" title="Link to Discord user" onclick="linkPlayer('${p.name}')">Link</span>`;
+    return `<div class="attend-row${exitClass}"><span class="attend-name">${p.name}</span>${linkBtn}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
+  }).join('');
+}
+
+async function refreshVoicePanel() {
+  await fetchVoiceMembers();
+  if (!voiceMembers) {
+    $('live-voice').innerHTML = '<div class="voice-unavailable">Voice check unavailable</div>';
+    $('live-voice-count').textContent = '0';
+    return;
+  }
+  $('live-voice-count').textContent = voiceMembers.length;
+  $('live-voice').innerHTML = voiceMembers.map(vm => {
+    const charTag = vm.character
+      ? `<span class="voice-char">${vm.character}</span>`
+      : `<span class="voice-nochar">no character linked</span>`;
+    return `<div class="voice-row"><span class="voice-discord">${vm.displayName}</span>${charTag}</div>`;
+  }).join('');
+}
+
+
+window.linkPlayer = async function(characterName) {
+  if (!voiceMembers || voiceMembers.length === 0) {
+    alert('No voice members available. Make sure the bot can see the voice channel.');
+    return;
+  }
+
+  // Build list of voice members who don't already have a linked character
+  const unlinkedVoice = voiceMembers.filter(vm => !vm.character);
+  const allVoice = voiceMembers;
+
+  const options = allVoice.map(vm => {
+    const label = vm.character ? `${vm.displayName} (linked to ${vm.character})` : vm.displayName;
+    return `<option value="${vm.discordId}" data-tag="${vm.displayName}">${label}</option>`;
+  }).join('');
+
+  // Replace the Link button with a dropdown
+  const rows = $('live-unlinked').querySelectorAll('.attend-row');
+  for (const row of rows) {
+    const nameEl = row.querySelector('.attend-name');
+    if (nameEl && nameEl.textContent === characterName) {
+      const linkEl = row.querySelector('.attend-link');
+      if (!linkEl) return;
+      const wrapper = document.createElement('span');
+      wrapper.className = 'link-inline';
+      wrapper.innerHTML = `<select class="link-select"><option value="">-- Select --</option>${options}</select><button class="btn-sm btn-link-confirm">OK</button>`;
+      linkEl.replaceWith(wrapper);
+
+      const sel = wrapper.querySelector('select');
+      const btn = wrapper.querySelector('button');
+      btn.addEventListener('click', async () => {
+        const discordId = sel.value;
+        const discordTag = sel.selectedOptions[0]?.dataset.tag;
+        if (!discordId) return;
+        try {
+          const res = await fetch('/api/link-character', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ characterName, discordId, discordTag }),
+          });
+          if (res.ok) {
+            // Refresh voice members to pick up the new link, then re-render
+            await fetchVoiceMembers();
+            await refreshVoicePanel();
+            // Trigger a re-render of attendance by fetching current state
+            try {
+              const sessionRes = await fetch('/api/live/session');
+              if (sessionRes.ok) {
+                const session = await sessionRes.json();
+                const allPlayers = session.attendance.map(a => ({
+                  name: a.name,
+                  lastSeen: a.lastSeen || a.firstSeen,
+                  exitTime: a.exitTime || null,
+                }));
+                await renderSplitAttendance(allPlayers);
+              }
+            } catch {}
+          } else {
+            const data = await res.json();
+            alert(data.error || 'Failed to link');
+          }
+        } catch {
+          alert('Failed to link character');
+        }
+      });
+      break;
+    }
+  }
+};
+
+window.attendAction = async function(name, action) {
+  try {
+    const res = await fetch('/api/live/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, action }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'Failed');
+    }
+  } catch {
+    alert('Failed to update attendance');
+  }
+};
+
 function cleanupLive() {
   if (liveSource) { liveSource.close(); liveSource = null; }
+  if (voiceInterval) { clearInterval(voiceInterval); voiceInterval = null; }
   liveRunning = false;
   $('btn-live-toggle').textContent = 'Start Watching';
+  $('chk-dev-mode').disabled = false;
+  $('zone-inline').classList.add('hidden');
   $('live-status').classList.add('hidden');
+  $('live-status-text').textContent = 'Watching...';
 }
 
 function renderLootEntry(index, looter, awardedTo, itemName) {

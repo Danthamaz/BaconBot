@@ -10,15 +10,15 @@
   <header>
     <h1>BaconBot</h1>
     <nav>
-      <button class="tab active" data-view="parse">Parse</button>
-      <button class="tab" data-view="live">Live Mode</button>
+      <button class="tab active" data-view="live">Live Mode</button>
+      <button class="tab" data-view="parse">Parse</button>
       <button class="tab" data-view="settings">Settings</button>
     </nav>
   </header>
 
   <main>
     <!-- ═══ Parse View ═══ -->
-    <section id="view-parse" class="view active">
+    <section id="view-parse" class="view hidden">
       <div class="controls">
         <div class="control-row">
           <label>Time Range:</label>
@@ -53,10 +53,21 @@
     </section>
 
     <!-- ═══ Live Mode View ═══ -->
-    <section id="view-live" class="view hidden">
+    <section id="view-live" class="view active">
       <div class="controls">
         <button id="btn-live-toggle" class="btn-primary">Start Watching</button>
         <button id="btn-live-upload" class="btn-secondary hidden">Upload Session</button>
+        <div class="zone-inline hidden" id="zone-inline">
+          <span class="zone-label">Zone:</span>
+          <span id="live-zone" class="zone-current">--</span>
+          <select id="live-zone-select" class="zone-select">
+            <option value="">-- Override --</option>
+          </select>
+          <button id="btn-zone-override" class="btn-secondary btn-sm">Set</button>
+        </div>
+        <label class="dev-mode-toggle">
+          <input type="checkbox" id="chk-dev-mode"> Dev Mode
+        </label>
       </div>
 
       <div id="live-status" class="hidden">
@@ -68,23 +79,27 @@
       </div>
 
       <div class="live-panels hidden" id="live-panels">
-        <div class="live-panel">
-          <h3>Current Zone</h3>
-          <div id="live-zone" class="live-value">--</div>
-          <div class="zone-override">
-            <select id="live-zone-select">
-              <option value="">-- Override Zone --</option>
-            </select>
-            <button id="btn-zone-override" class="btn-secondary btn-sm">Set</button>
-          </div>
-        </div>
-        <div class="live-panel">
+        <div class="live-panel live-panel-main">
           <h3>Attendance <span id="live-attend-count" class="badge">0</span></h3>
+          <div class="attend-legend">
+            <span class="dot green"></span> Confirmed (zone + voice)
+            <span class="dot amber"></span> In voice only
+            <span class="dot red"></span> Not in voice
+          </div>
           <div id="live-attendance" class="live-scroll"></div>
         </div>
-        <div class="live-panel">
+        <div class="live-panel live-panel-main">
           <h3>Loot Feed <span id="live-loot-count" class="badge">0</span></h3>
           <div id="live-loot" class="live-scroll"></div>
+        </div>
+        <div class="live-panel live-panel-side">
+          <h3>Unlinked Players <span id="live-unlinked-count" class="badge">0</span></h3>
+          <div id="live-unlinked" class="live-scroll"></div>
+        </div>
+        <div class="live-panel live-panel-side">
+          <h3>Voice Channel <span id="live-voice-count" class="badge">0</span></h3>
+          <div id="live-voice" class="live-scroll"></div>
+          <button id="btn-voice-refresh" class="btn-secondary btn-sm" style="margin-top:8px">Refresh</button>
         </div>
       </div>
     </section>

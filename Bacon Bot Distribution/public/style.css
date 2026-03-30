@@ -61,7 +61,7 @@ nav { display: flex; gap: 4px; }
 main {
   flex: 1;
   padding: 24px;
-  max-width: 960px;
+  max-width: 1200px;
   width: 100%;
   margin: 0 auto;
 }
@@ -73,10 +73,11 @@ main {
 /* ── Controls ─────────────────────────────────────────────────────────── */
 .controls { margin-bottom: 20px; }
 
-.control-row {
+.control-row, .controls {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .control-row label {
@@ -420,8 +421,19 @@ textarea:focus { outline: none; border-color: var(--accent); }
 
 .live-panels {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+.live-panel-main {
+  min-height: 350px;
+}
+.live-panel-main .live-scroll {
+  max-height: 400px;
+}
+
+.live-panel-side {
+  min-height: auto;
 }
 
 .live-panel {
@@ -454,17 +466,29 @@ textarea:focus { outline: none; border-color: var(--accent); }
   font-family: monospace;
 }
 
-.zone-override {
+.zone-inline {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-left: auto;
 }
 
-.zone-override select {
-  flex: 1;
+.zone-label {
   font-size: 12px;
-  padding: 5px 8px;
+  color: var(--text-dim);
+}
+
+.zone-current {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: monospace;
+  color: var(--text);
+}
+
+.zone-select {
+  font-size: 12px;
+  padding: 4px 6px;
+  max-width: 160px;
 }
 
 .btn-sm {
@@ -484,6 +508,16 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .live-scroll::-webkit-scrollbar-track { background: var(--bg); }
 .live-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+.dev-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.dev-mode-toggle input:checked + ::after { color: var(--amber); }
+
 .autosave-status {
   font-size: 11px;
   font-weight: normal;
@@ -491,6 +525,129 @@ textarea:focus { outline: none; border-color: var(--accent); }
 }
 .autosave-status.success { color: var(--green); }
 .autosave-status.error   { color: var(--red); }
+
+.attend-row {
+  display: flex;
+  align-items: center;
+}
+
+.attend-name { flex: 1; }
+
+.attend-discord {
+  font-size: 10px;
+  color: #5865f2;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.attend-exited .attend-discord { opacity: 0.5; }
+
+.attend-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.attend-row:hover .attend-actions { opacity: 1; }
+
+.attend-exit, .attend-undo, .attend-remove {
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 0 2px;
+}
+.attend-exit:hover { color: var(--amber); }
+.attend-undo:hover { color: var(--green); }
+.attend-remove:hover { color: var(--red); }
+
+.attend-exited .attend-name {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.attend-time {
+  color: var(--text-dim);
+  font-size: 10px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.attend-exited .attend-time { color: var(--amber); }
+
+.attend-stale .attend-name { opacity: 0.6; }
+.attend-stale .attend-time { color: var(--red); }
+
+.attend-legend {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.attend-link {
+  font-size: 10px;
+  color: var(--blue);
+  cursor: pointer;
+  margin-left: 6px;
+  border-bottom: 1px dashed var(--blue);
+  flex-shrink: 0;
+}
+.attend-link:hover { color: var(--accent); border-color: var(--accent); }
+
+.link-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.link-select {
+  font-size: 11px;
+  padding: 2px 4px;
+  max-width: 140px;
+}
+
+.btn-link-confirm {
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.btn-link-confirm:hover { filter: brightness(1.15); }
+
+.voice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.voice-discord {
+  color: #5865f2;
+  font-weight: 600;
+}
+
+.voice-char {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.voice-nochar {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.voice-unavailable {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 12px;
+}
 
 .loot-item {
   padding: 3px 0;
@@ -586,6 +743,7 @@ footer {
   border-radius: 50%;
 }
 .dot.green { background: var(--green); }
+.dot.amber { background: var(--amber); }
 .dot.red   { background: var(--red); }
 
 .voice-col { text-align: center; width: 50px; }
