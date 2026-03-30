@@ -158,7 +158,8 @@ module.exports = {
         const charNote  = allChars.length > 1 && r.character_name
           ? ` *(as \`${r.character_name}\`)*`
           : '';
-        return `• **[${r.id}]** ${r.name}${classInfo}${charNote}\n  📅 ${formatDate(r.start_time)}  🗺️ ${r.zone}`;
+        const zones = r.zones || r.raid_zone || 'Unknown';
+        return `• **[${r.id}]** ${r.name}${classInfo}${charNote}\n  📅 ${formatDate(r.start_time)}  🗺️ ${zones}`;
       });
 
       // Build the title with a Discord mention if we have a user ID
