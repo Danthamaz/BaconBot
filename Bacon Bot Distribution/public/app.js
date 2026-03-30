@@ -416,6 +416,7 @@ async function uploadSelected() {
 function setupLive() {
   $('btn-live-toggle').addEventListener('click', toggleLive);
   $('btn-live-upload').addEventListener('click', uploadLiveSession);
+  $('btn-end-raid').addEventListener('click', endRaid);
   $('btn-zone-override').addEventListener('click', overrideZone);
   $('btn-voice-refresh').addEventListener('click', refreshVoicePanel);
 }
@@ -468,6 +469,9 @@ function startLive() {
   $('zone-inline').classList.remove('hidden');
   $('live-status').classList.remove('hidden');
   $('live-panels').classList.remove('hidden');
+  $('btn-end-raid').classList.remove('hidden');
+  $('btn-end-raid').textContent = 'End Raid';
+  $('btn-end-raid').disabled = false;
   if (devMode) {
     $('btn-live-upload').classList.add('hidden');
     $('live-status-text').textContent = 'Watching (Dev Mode — not saving)...';
@@ -565,6 +569,13 @@ function startLive() {
       el.textContent = `Auto-save failed at ${time}`;
       el.className = 'autosave-status error';
     }
+  });
+
+  liveSource.addEventListener('raid-ended', e => {
+    const d = JSON.parse(e.data);
+    const time = new Date(d.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    $('btn-end-raid').textContent = `Ended at ${time}`;
+    $('btn-end-raid').disabled = true;
   });
 
   liveSource.addEventListener('stopped', () => {
@@ -764,6 +775,21 @@ window.attendAction = async function(name, action) {
   }
 };
 
+async function endRaid() {
+  if (!confirm('Mark raid as ended? This sets the end timestamp.')) return;
+  try {
+    const res = await fetch('/api/live/end-raid', { method: 'POST' });
+    if (res.ok) {
+      const d = await res.json();
+      const time = new Date(d.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      $('btn-end-raid').textContent = `Ended at ${time}`;
+      $('btn-end-raid').disabled = true;
+    }
+  } catch {
+    alert('Failed to end raid');
+  }
+}
+
 function cleanupLive() {
   if (liveSource) { liveSource.close(); liveSource = null; }
   if (voiceInterval) { clearInterval(voiceInterval); voiceInterval = null; }
@@ -773,6 +799,7 @@ function cleanupLive() {
   $('zone-inline').classList.add('hidden');
   $('live-status').classList.add('hidden');
   $('live-status-text').textContent = 'Watching...';
+  $('btn-end-raid').classList.add('hidden');
 }
 
 function renderLootEntry(index, looter, awardedTo, itemName) {

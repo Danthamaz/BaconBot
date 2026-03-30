@@ -533,6 +533,9 @@ async function handleRequest(req, res) {
         liveWatcher.on('error', data => {
           liveClients.forEach(c => sseSend(c, 'error', data));
         });
+        liveWatcher.on('raid-ended', data => {
+          liveClients.forEach(c => sseSend(c, 'raid-ended', data));
+        });
 
         liveWatcher.start();
         if (!liveDevMode) startAutoSave();
@@ -643,6 +646,13 @@ async function handleRequest(req, res) {
       if (!zone) return json(400, { error: 'zone is required' });
       liveWatcher.setZone(zone);
       return json(200, { zone });
+    }
+
+    // ── POST /api/live/end-raid ────────────────────────────────────
+    if (req.method === 'POST' && route === '/api/live/end-raid') {
+      if (!liveWatcher) return json(400, { error: 'Live mode not running' });
+      liveWatcher.setRaidEndTime();
+      return json(200, { endTime: liveWatcher.raidEndTime.toISOString() });
     }
 
     // ── POST /api/live/stop ─────────────────────────────────────

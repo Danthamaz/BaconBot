@@ -39,6 +39,7 @@ class LogWatcher extends EventEmitter {
     this.lootEvents    = [];
     this.zones         = new Set();
     this._debounce     = null;
+    this.raidEndTime   = null;
 
     // Filtering
     this.approvedZoneFilters = (approvedZones || []).map(normalizeZone);
@@ -60,6 +61,11 @@ class LogWatcher extends EventEmitter {
 
   _isIgnoredItem(itemName) {
     return this.ignoredItems.has(itemName.toLowerCase());
+  }
+
+  setRaidEndTime() {
+    this.raidEndTime = new Date();
+    this.emit('raid-ended', { endTime: this.raidEndTime.toISOString() });
   }
 
   setIgnoredItems(items) {
@@ -156,20 +162,40 @@ class LogWatcher extends EventEmitter {
 
         const newPlayers = [];
         for (const p of this.whoPlayers) {
-          const key = p.name.toLowerCase();
+          const key = `${p.name.toLowerCase()}:${whoZone.toLowerCase()}`;
           const existing = this.attendanceMap.get(key);
           if (!existing) {
-            this.attendanceMap.set(key, { ...p, firstSeen: this.whoBlockUTC, lastSeen: this.whoBlockUTC, validated: false });
+            this.attendanceMap.set(key, { ...p, zone: whoZone, firstSeen: this.whoBlockUTC, lastSeen: this.whoBlockUTC, validated: false });
             newPlayers.push(p);
           }
-          // lastSeen is only updated via validatePlayers() when both in-zone and in-voice
+          // lastSeen is only updated via validatePlayers()
         }
 
-        const allPlayersWithTime = Array.from(this.attendanceMap.entries()).map(([name, data]) => ({
-          name,
-          lastSeen: data.lastSeen.toISOString(),
-          exitTime: data.exitTime ? data.exitTime.toISOString() : null,
-          validated: !!data.validated,
+        const playerMap = new Map();
+        for (const [key, data] of this.attendanceMap) {
+          const lowerName = data.name.toLowerCase();
+          const existing = playerMap.get(lowerName);
+          if (!existing) {
+            playerMap.set(lowerName, {
+              name: data.name,
+              zones: data.zone ? [data.zone] : [],
+              lastSeen: data.lastSeen,
+              exitTime: data.exitTime || null,
+              validated: !!data.validated,
+            });
+          } else {
+            if (data.zone && !existing.zones.includes(data.zone)) existing.zones.push(data.zone);
+            if (data.lastSeen > existing.lastSeen) existing.lastSeen = data.lastSeen;
+            if (data.validated) existing.validated = true;
+            if (data.exitTime && (!existing.exitTime || data.exitTime > existing.exitTime)) existing.exitTime = data.exitTime;
+          }
+        }
+        const allPlayersWithTime = Array.from(playerMap.values()).map(p => ({
+          name: p.name,
+          zones: p.zones,
+          lastSeen: p.lastSeen.toISOString(),
+          exitTime: p.exitTime ? p.exitTime.toISOString() : null,
+          validated: p.validated,
         }));
 
         this.emit('attendance', {
@@ -237,6 +263,9 @@ class LogWatcher extends EventEmitter {
     const lastSeen = attendance.length > 0
       ? new Date(Math.max(...attendance.map(a => a.lastSeen.getTime())))
       : new Date();
+    const endTime = this.raidEndTime
+      ? this.raidEndTime.toISOString()
+      : lastSeen.toISOString();
     const dateStr = firstSeen.toISOString().slice(0, 10);
     const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
@@ -247,7 +276,7 @@ class LogWatcher extends EventEmitter {
       attendance,
       loot:       this.lootEvents,
       firstSeen:  firstSeen.toISOString(),
-      lastSeen:   lastSeen.toISOString(),
+      lastSeen:   endTime,
     };
   }
 
@@ -258,7 +287,8 @@ class LogWatcher extends EventEmitter {
   validatePlayers(voiceConfirmedNames) {
     const now = new Date();
     for (const [key, data] of this.attendanceMap) {
-      if (voiceConfirmedNames.has(key)) {
+      const name = key.split(':')[0];
+      if (voiceConfirmedNames.has(name)) {
         data.lastSeen = now;
         data.validated = true;
       }
@@ -266,26 +296,39 @@ class LogWatcher extends EventEmitter {
   }
 
   removePlayer(name) {
-    const key = name.toLowerCase();
-    if (!this.attendanceMap.has(key)) return false;
-    this.attendanceMap.delete(key);
-    return true;
+    const prefix = name.toLowerCase() + ':';
+    let removed = false;
+    for (const key of this.attendanceMap.keys()) {
+      if (key === name.toLowerCase() || key.startsWith(prefix)) {
+        this.attendanceMap.delete(key);
+        removed = true;
+      }
+    }
+    return removed;
   }
 
   markPlayerExited(name) {
-    const key = name.toLowerCase();
-    const player = this.attendanceMap.get(key);
-    if (!player) return false;
-    player.exitTime = new Date();
-    return true;
+    const prefix = name.toLowerCase() + ':';
+    let found = false;
+    for (const [key, player] of this.attendanceMap) {
+      if (key === name.toLowerCase() || key.startsWith(prefix)) {
+        player.exitTime = new Date();
+        found = true;
+      }
+    }
+    return found;
   }
 
   clearPlayerExit(name) {
-    const key = name.toLowerCase();
-    const player = this.attendanceMap.get(key);
-    if (!player) return false;
-    delete player.exitTime;
-    return true;
+    const prefix = name.toLowerCase() + ':';
+    let found = false;
+    for (const [key, player] of this.attendanceMap) {
+      if (key === name.toLowerCase() || key.startsWith(prefix)) {
+        delete player.exitTime;
+        found = true;
+      }
+    }
+    return found;
   }
 
   updateLoot(index, awardedTo) {
