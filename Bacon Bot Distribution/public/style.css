@@ -401,9 +401,8 @@ textarea:focus { outline: none; border-color: var(--accent); }
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  margin-bottom: 16px;
 }
 
 .pulse {
@@ -530,6 +529,16 @@ textarea:focus { outline: none; border-color: var(--accent); }
   display: flex;
   align-items: center;
 }
+
+.status-icon {
+  font-size: 12px;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.status-confirmed { color: var(--text); }   /* ✓ checkmark */
+.status-voice     { color: var(--amber); }  /* ● dot */
+.status-missing   { color: var(--text-dim); } /* ✗ x-mark */
 
 .attend-name { flex: 1; }
 
@@ -691,6 +700,22 @@ textarea:focus { outline: none; border-color: var(--accent); }
   font-size: 12px;
   width: 120px;
 }
+
+.loot-item {
+  position: relative;
+}
+
+.loot-ignore {
+  opacity: 0;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 6px;
+  padding: 0 3px;
+  transition: opacity 0.15s;
+}
+.loot-item:hover .loot-ignore { opacity: 1; }
+.loot-ignore:hover { color: var(--red); }
 
 /* ── Footer / Status Bar ──────────────────────────────────────────────── */
 footer {

@@ -60,6 +60,9 @@ async function loadConfig() {
     // Approved zones
     $('cfg-zones').value = (config.approvedZones || []).slice().sort((a, b) => a.localeCompare(b)).join('\n');
 
+    // Ignored items
+    $('cfg-ignored-items').value = (config.ignoredItems || []).slice().sort((a, b) => a.localeCompare(b)).join('\n');
+
     updateStatusBar();
 
     // Auto-detect log file if config is set
@@ -94,6 +97,13 @@ async function saveSettings() {
     .split('\n')
     .map(z => z.trim())
     .filter(z => z.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+
+  // Ignored items
+  config.ignoredItems = $('cfg-ignored-items').value
+    .split('\n')
+    .map(i => i.trim())
+    .filter(i => i.length > 0)
     .sort((a, b) => a.localeCompare(b));
 
   try {
@@ -510,6 +520,8 @@ function startLive() {
 
   liveSource.addEventListener('loot', e => {
     const d = JSON.parse(e.data);
+    // Skip items on the client-side ignore list
+    if ((config.ignoredItems || []).some(i => i.toLowerCase() === d.itemName.toLowerCase())) return;
     const count = parseInt($('live-loot-count').textContent, 10) + 1;
     const idx = count - 1;
     $('live-loot-count').textContent = count;
@@ -530,6 +542,16 @@ function startLive() {
     const itemEl = div.querySelector('.loot-name');
     const itemName = itemEl ? itemEl.textContent : '';
     div.innerHTML = renderLootEntry(d.index, looter, d.awardedTo, itemName);
+  });
+
+  liveSource.addEventListener('item-ignored', e => {
+    const d = JSON.parse(e.data);
+    removeIgnoredItemsFromFeed(d.itemName);
+    // Also update local config so new loot items don't render if they match
+    if (!config.ignoredItems) config.ignoredItems = [];
+    if (!config.ignoredItems.some(i => i.toLowerCase() === d.itemName.toLowerCase())) {
+      config.ignoredItems.push(d.itemName);
+    }
   });
 
   liveSource.addEventListener('autosave', e => {
@@ -606,17 +628,18 @@ async function renderSplitAttendance(players) {
       : new Date(p.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const exitClass = exited ? ' attend-exited' : '';
     const exitLabel = exited ? 'exited ' : '';
-    // Green = in zone + in voice (validated), amber = in zone but not voice, red = not validated yet
-    const dotColor = p.validated && p.inVoice ? 'green' : p.inVoice ? 'amber' : 'red';
-    const dotTitle = p.validated && p.inVoice ? 'In zone + voice' : p.inVoice ? 'In voice, not confirmed in zone' : 'Not in voice';
-    const dot = `<span class="dot ${dotColor}" title="${dotTitle}"></span> `;
+    const icon = p.validated && p.inVoice
+      ? '<span class="status-icon status-confirmed" title="Confirmed (zone + voice)">&#10003;</span> '
+      : p.inVoice
+        ? '<span class="status-icon status-voice" title="In voice, not confirmed in zone">&#9679;</span> '
+        : '<span class="status-icon status-missing" title="Not in voice">&#10007;</span> ';
     const exitBtn = exited
       ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${p.name}','clear-exit')">\u21a9</span>`
       : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${p.name}','exit')">\u23f9</span>`;
     const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${p.name}','remove')">\u2715</span>`;
     const discordTag = `<span class="attend-discord">${p.discordName}</span>`;
     const staleClass = !p.validated && !exited ? ' attend-stale' : '';
-    return `<div class="attend-row${exitClass}${staleClass}">${dot}<span class="attend-name">${p.name}</span>${discordTag}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
+    return `<div class="attend-row${exitClass}${staleClass}">${icon}<span class="attend-name">${p.name}</span>${discordTag}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
   }).join('');
 
   // Render unlinked players
@@ -750,15 +773,18 @@ function cleanupLive() {
 }
 
 function renderLootEntry(index, looter, awardedTo, itemName) {
+  const ignoreBtn = `<span class="loot-ignore" title="Ignore this item" onclick="ignoreLootItem('${itemName.replace(/'/g, "\\'")}')">X</span>`;
   if (awardedTo && awardedTo !== looter) {
     return `<span class="loot-player loot-original">${looter}</span> ` +
       `<span class="loot-arrow">\u2192</span> ` +
       `<span class="loot-awarded" title="Click to change" onclick="editLootPlayer(${index})">${awardedTo}</span> ` +
       `looted <span class="loot-name">${itemName}</span>` +
-      `<span class="loot-undo" title="Undo reassign" onclick="undoLootPlayer(${index})"> \u2715</span>`;
+      `<span class="loot-undo" title="Undo reassign" onclick="undoLootPlayer(${index})"> \u2715</span>` +
+      ignoreBtn;
   }
   return `<span class="loot-player" title="Click to reassign" onclick="editLootPlayer(${index})">${looter}</span> ` +
-    `looted <span class="loot-name">${itemName}</span>`;
+    `looted <span class="loot-name">${itemName}</span>` +
+    ignoreBtn;
 }
 
 window.editLootPlayer = async function(index) {
@@ -832,6 +858,40 @@ window.undoLootPlayer = async function(index) {
     alert('Failed to undo');
   }
 };
+
+window.ignoreLootItem = async function(itemName) {
+  if (!itemName) return;
+  try {
+    const res = await fetch('/api/live/ignore-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemName }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'Failed to ignore item');
+    }
+    // SSE broadcast will handle removing items from all clients
+  } catch {
+    alert('Failed to ignore item');
+  }
+};
+
+function removeIgnoredItemsFromFeed(itemName) {
+  const lootContainer = $('live-loot');
+  const items = lootContainer.querySelectorAll('.loot-item');
+  let removed = 0;
+  items.forEach(div => {
+    const nameEl = div.querySelector('.loot-name');
+    if (nameEl && nameEl.textContent.toLowerCase() === itemName.toLowerCase()) {
+      div.remove();
+      removed++;
+    }
+  });
+  // Update the loot count
+  const current = parseInt($('live-loot-count').textContent, 10) || 0;
+  $('live-loot-count').textContent = Math.max(0, current - removed);
+}
 
 async function uploadLiveSession() {
   try {

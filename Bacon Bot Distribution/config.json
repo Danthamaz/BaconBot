@@ -36,5 +36,6 @@
     "Umbral Plains",
     "Veeshan's Peak",
     "Vex Thal"
-  ]
+  ],
+  "ignoredItems": []
 }

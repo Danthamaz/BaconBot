@@ -23,7 +23,7 @@ function zoneMatchesFilters(zoneName, filters) {
 }
 
 class LogWatcher extends EventEmitter {
-  constructor({ filePath, timezone, characterName, approvedZones, raidDays, raidStartUTC, raidEndUTC }) {
+  constructor({ filePath, timezone, characterName, approvedZones, raidDays, raidStartUTC, raidEndUTC, ignoredItems }) {
     super();
     this.filePath      = filePath;
     this.timezone      = timezone;
@@ -45,6 +45,7 @@ class LogWatcher extends EventEmitter {
     this.raidDays            = new Set(raidDays || [0, 3, 5, 6]);
     this.raidStartUTC        = raidStartUTC ?? 13;
     this.raidEndUTC          = raidEndUTC ?? 17;
+    this.ignoredItems        = new Set((ignoredItems || []).map(i => i.toLowerCase()));
   }
 
   _isInRaidWindow(utcDate) {
@@ -55,6 +56,14 @@ class LogWatcher extends EventEmitter {
 
   _isApprovedZone(zoneName) {
     return !!zoneName && zoneMatchesFilters(zoneName, this.approvedZoneFilters);
+  }
+
+  _isIgnoredItem(itemName) {
+    return this.ignoredItems.has(itemName.toLowerCase());
+  }
+
+  setIgnoredItems(items) {
+    this.ignoredItems = new Set((items || []).map(i => i.toLowerCase()));
   }
 
   start() {
@@ -193,6 +202,7 @@ class LogWatcher extends EventEmitter {
     // Loot — self
     const selfLoot = content.match(SELF_LOOT_RE);
     if (selfLoot && this.characterName) {
+      if (this._isIgnoredItem(selfLoot[1])) return;
       const lootItem = {
         playerName: this.characterName,
         itemName:   selfLoot[1],
@@ -207,6 +217,7 @@ class LogWatcher extends EventEmitter {
     // Loot — other
     const otherLoot = content.match(OTHER_LOOT_RE);
     if (otherLoot) {
+      if (this._isIgnoredItem(otherLoot[2])) return;
       const lootItem = {
         playerName: otherLoot[1],
         itemName:   otherLoot[2],

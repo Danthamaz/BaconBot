@@ -23,6 +23,7 @@ const DEFAULT_CONFIG = {
   raidStartUTC: 13,
   raidEndUTC:   17,
   approvedZones: [...APPROVED_ZONES],
+  ignoredItems:  [],
 };
 
 function loadConfig() {
@@ -173,6 +174,12 @@ async function autoSaveLiveSession() {
   const zoneStr  = session.zones.join(', ');
   const autoName = `${session.date} ${session.dayName} - ${session.zones.slice(0, 2).join(', ')}`;
 
+  // Apply awardedTo overrides to loot
+  const loot = session.loot.map(l => ({
+    ...l,
+    playerName: l.awardedTo || l.playerName,
+  }));
+
   try {
     let existingRaid = null;
     try {
@@ -184,7 +191,7 @@ async function autoSaveLiveSession() {
     if (existingRaid) {
       result = await apiPost(`${serverUrl}/raid/merge?id=${existingRaid.id}`, {
         attendance: session.attendance,
-        loot:       session.loot,
+        loot,
       }, apiKey);
     } else {
       result = await apiPost(`${serverUrl}/raid`, {
@@ -197,7 +204,7 @@ async function autoSaveLiveSession() {
           submittedBy:   'web-app-autosave',
         },
         attendance: session.attendance,
-        loot:       session.loot,
+        loot,
       }, apiKey);
     }
 
@@ -256,6 +263,7 @@ async function handleRequest(req, res) {
       if (body.raidStartUTC !== undefined)  cfg.raidStartUTC  = body.raidStartUTC;
       if (body.raidEndUTC !== undefined)    cfg.raidEndUTC    = body.raidEndUTC;
       if (body.approvedZones !== undefined) cfg.approvedZones = body.approvedZones;
+      if (body.ignoredItems !== undefined)  cfg.ignoredItems  = body.ignoredItems;
       saveConfig(cfg);
       return json(200, { ok: true });
     }
@@ -329,6 +337,12 @@ async function handleRequest(req, res) {
       const zoneStr  = session.zones.join(', ');
       const autoName = `${session.date} ${session.dayName} - ${session.zones.slice(0, 2).join(', ')}`;
 
+      // Apply awardedTo overrides to loot
+      const loot = session.loot.map(l => ({
+        ...l,
+        playerName: l.awardedTo || l.playerName,
+      }));
+
       // Check for existing raid
       let existingRaid = null;
       try {
@@ -340,7 +354,7 @@ async function handleRequest(req, res) {
       if (existingRaid) {
         result = await apiPost(`${serverUrl}/raid/merge?id=${existingRaid.id}`, {
           attendance: session.attendance,
-          loot:       session.loot,
+          loot,
         }, apiKey);
         if (result.status === 200) {
           return json(200, { action: 'merged', raidId: existingRaid.id, newLoot: result.body.newLoot });
@@ -356,7 +370,7 @@ async function handleRequest(req, res) {
             submittedBy:   'web-app',
           },
           attendance: session.attendance,
-          loot:       session.loot,
+          loot,
         }, apiKey);
         if (result.status === 200) {
           return json(200, { action: 'created', raidId: result.body.raidId });
@@ -436,6 +450,7 @@ async function handleRequest(req, res) {
           raidDays:      cfg.raidDays,
           raidStartUTC:  cfg.raidStartUTC,
           raidEndUTC:    cfg.raidEndUTC,
+          ignoredItems:  cfg.ignoredItems || [],
         });
 
         liveWatcher.on('zone', data => {
@@ -528,6 +543,31 @@ async function handleRequest(req, res) {
       return json(200, { index, awardedTo: awardedTo || null });
     }
 
+    // ── POST /api/live/ignore-item ─────────────────────────────
+    if (req.method === 'POST' && route === '/api/live/ignore-item') {
+      const body = JSON.parse(await readBody(req));
+      const itemName = (body.itemName || '').trim();
+      if (!itemName) return json(400, { error: 'itemName is required' });
+
+      // Add to config
+      const cfg = loadConfig();
+      if (!cfg.ignoredItems) cfg.ignoredItems = [];
+      const alreadyIgnored = cfg.ignoredItems.some(i => i.toLowerCase() === itemName.toLowerCase());
+      if (!alreadyIgnored) {
+        cfg.ignoredItems.push(itemName);
+        saveConfig(cfg);
+      }
+
+      // Update the live watcher's ignore list if running
+      if (liveWatcher) {
+        liveWatcher.setIgnoredItems(cfg.ignoredItems);
+      }
+
+      // Broadcast to all SSE clients so they can hide matching items
+      liveClients.forEach(c => sseSend(c, 'item-ignored', { itemName }));
+      return json(200, { ok: true, itemName });
+    }
+
     // ── POST /api/live/zone ─────────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/zone') {
       if (!liveWatcher) return json(400, { error: 'Live mode not running' });
@@ -541,7 +581,9 @@ async function handleRequest(req, res) {
     // ── POST /api/live/stop ─────────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/stop') {
       if (liveWatcher) {
-        if (!liveDevMode) await autoSaveLiveSession();
+        if (!liveDevMode) {
+          try { await Promise.race([autoSaveLiveSession(), new Promise(r => setTimeout(r, 5000))]); } catch {}
+        }
         stopAutoSave();
         liveWatcher.stop();
         liveWatcher = null;
