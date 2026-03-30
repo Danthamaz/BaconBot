@@ -550,6 +550,13 @@ textarea:focus { outline: none; border-color: var(--accent); }
 }
 .attend-exited .attend-discord { opacity: 0.5; }
 
+.attend-zones {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
 .attend-actions {
   display: flex;
   gap: 4px;

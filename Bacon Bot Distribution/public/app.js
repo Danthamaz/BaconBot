@@ -638,8 +638,11 @@ async function renderSplitAttendance(players) {
       : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${p.name}','exit')">\u23f9</span>`;
     const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${p.name}','remove')">\u2715</span>`;
     const discordTag = `<span class="attend-discord">${p.discordName}</span>`;
+    const zoneTag = p.zones && p.zones.length > 0
+      ? `<span class="attend-zones">${p.zones.join(', ')}</span>`
+      : '';
     const staleClass = !p.validated && !exited ? ' attend-stale' : '';
-    return `<div class="attend-row${exitClass}${staleClass}">${icon}<span class="attend-name">${p.name}</span>${discordTag}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
+    return `<div class="attend-row${exitClass}${staleClass}">${icon}<span class="attend-name">${p.name}</span>${discordTag}${zoneTag}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
   }).join('');
 
   // Render unlinked players

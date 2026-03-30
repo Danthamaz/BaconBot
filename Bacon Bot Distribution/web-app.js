@@ -180,6 +180,20 @@ async function autoSaveLiveSession() {
     playerName: l.awardedTo || l.playerName,
   }));
 
+  // Filter attendance to only validated + linked players
+  let attendance = session.attendance;
+  try {
+    const voiceResult = await apiGet(`${serverUrl}/voice-members`, apiKey);
+    if (voiceResult.status === 200 && voiceResult.body.members) {
+      const linkedChars = new Set();
+      for (const vm of voiceResult.body.members) {
+        if (vm.character) linkedChars.add(vm.character.toLowerCase());
+      }
+      attendance = attendance.filter(a => a.validated && linkedChars.has(a.name.toLowerCase()));
+    }
+  } catch {}
+  if (attendance.length === 0 && loot.length === 0) return;
+
   try {
     let existingRaid = null;
     try {
@@ -190,7 +204,7 @@ async function autoSaveLiveSession() {
     let result;
     if (existingRaid) {
       result = await apiPost(`${serverUrl}/raid/merge?id=${existingRaid.id}`, {
-        attendance: session.attendance,
+        attendance,
         loot,
       }, apiKey);
     } else {
@@ -203,7 +217,7 @@ async function autoSaveLiveSession() {
           characterName: cfg.character || null,
           submittedBy:   'web-app-autosave',
         },
-        attendance: session.attendance,
+        attendance,
         loot,
       }, apiKey);
     }
@@ -343,6 +357,19 @@ async function handleRequest(req, res) {
         playerName: l.awardedTo || l.playerName,
       }));
 
+      // Filter attendance to only validated + linked players
+      let attendance = session.attendance;
+      try {
+        const voiceResult = await apiGet(`${serverUrl}/voice-members`, apiKey);
+        if (voiceResult.status === 200 && voiceResult.body.members) {
+          const linkedChars = new Set();
+          for (const vm of voiceResult.body.members) {
+            if (vm.character) linkedChars.add(vm.character.toLowerCase());
+          }
+          attendance = attendance.filter(a => a.validated && linkedChars.has(a.name.toLowerCase()));
+        }
+      } catch {}
+
       // Check for existing raid
       let existingRaid = null;
       try {
@@ -353,7 +380,7 @@ async function handleRequest(req, res) {
       let result;
       if (existingRaid) {
         result = await apiPost(`${serverUrl}/raid/merge?id=${existingRaid.id}`, {
-          attendance: session.attendance,
+          attendance,
           loot,
         }, apiKey);
         if (result.status === 200) {
@@ -369,7 +396,7 @@ async function handleRequest(req, res) {
             characterName: character || null,
             submittedBy:   'web-app',
           },
-          attendance: session.attendance,
+          attendance,
           loot,
         }, apiKey);
         if (result.status === 200) {
@@ -470,12 +497,32 @@ async function handleRequest(req, res) {
             }
           } catch {}
 
-          // Re-build the player list after validation
-          const allPlayersWithTime = Array.from(liveWatcher.attendanceMap.entries()).map(([name, d]) => ({
-            name,
-            lastSeen: d.lastSeen.toISOString(),
-            exitTime: d.exitTime ? d.exitTime.toISOString() : null,
-            validated: !!d.validated,
+          // Re-build the player list after validation (deduped by name with zones)
+          const playerMap = new Map();
+          for (const [key, d] of liveWatcher.attendanceMap) {
+            const lowerName = d.name.toLowerCase();
+            const existing = playerMap.get(lowerName);
+            if (!existing) {
+              playerMap.set(lowerName, {
+                name: d.name,
+                zones: d.zone ? [d.zone] : [],
+                lastSeen: d.lastSeen,
+                exitTime: d.exitTime || null,
+                validated: !!d.validated,
+              });
+            } else {
+              if (d.zone && !existing.zones.includes(d.zone)) existing.zones.push(d.zone);
+              if (d.lastSeen > existing.lastSeen) existing.lastSeen = d.lastSeen;
+              if (d.validated) existing.validated = true;
+              if (d.exitTime && (!existing.exitTime || d.exitTime > existing.exitTime)) existing.exitTime = d.exitTime;
+            }
+          }
+          const allPlayersWithTime = Array.from(playerMap.values()).map(p => ({
+            name: p.name,
+            zones: p.zones,
+            lastSeen: p.lastSeen.toISOString(),
+            exitTime: p.exitTime ? p.exitTime.toISOString() : null,
+            validated: p.validated,
           }));
           const updated = { ...data, allPlayers: allPlayersWithTime };
           liveClients.forEach(c => sseSend(c, 'attendance', updated));
@@ -517,12 +564,32 @@ async function handleRequest(req, res) {
       }
       if (!ok) return json(404, { error: 'Player not found' });
 
-      // Broadcast updated attendance list
-      const allPlayersWithTime = Array.from(liveWatcher.attendanceMap.entries()).map(([n, data]) => ({
-        name: n,
-        lastSeen: data.lastSeen.toISOString(),
-        exitTime: data.exitTime ? data.exitTime.toISOString() : null,
-        validated: !!data.validated,
+      // Broadcast updated attendance list (deduped by name with zones)
+      const playerMap = new Map();
+      for (const [key, data] of liveWatcher.attendanceMap) {
+        const lowerName = data.name.toLowerCase();
+        const existing = playerMap.get(lowerName);
+        if (!existing) {
+          playerMap.set(lowerName, {
+            name: data.name,
+            zones: data.zone ? [data.zone] : [],
+            lastSeen: data.lastSeen,
+            exitTime: data.exitTime || null,
+            validated: !!data.validated,
+          });
+        } else {
+          if (data.zone && !existing.zones.includes(data.zone)) existing.zones.push(data.zone);
+          if (data.lastSeen > existing.lastSeen) existing.lastSeen = data.lastSeen;
+          if (data.validated) existing.validated = true;
+          if (data.exitTime && (!existing.exitTime || data.exitTime > existing.exitTime)) existing.exitTime = data.exitTime;
+        }
+      }
+      const allPlayersWithTime = Array.from(playerMap.values()).map(p => ({
+        name: p.name,
+        zones: p.zones,
+        lastSeen: p.lastSeen.toISOString(),
+        exitTime: p.exitTime ? p.exitTime.toISOString() : null,
+        validated: p.validated,
       }));
       liveClients.forEach(c => sseSend(c, 'attendance-update', {
         total: liveWatcher.attendanceMap.size,
