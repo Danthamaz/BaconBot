@@ -287,6 +287,7 @@ function importZones(dumpPath) {
 
   insertMany(rows);
   console.log(`[quarm-db] Imported ${rows.length} zones.`);
+  return rows.length;
 }
 
 /**
@@ -467,6 +468,7 @@ function importItemsForZones(dumpPath, zoneShortNames) {
 
   insertMany(zoneItemPairs);
   console.log(`[quarm-db] Import complete.`);
+  return itemMap.size;
 }
 
 // ---------------------------------------------------------------------------

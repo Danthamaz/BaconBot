@@ -5,3 +5,4 @@ raid_data.db
 raid_data.db-shm
 raid_data.db-wal
 seed-learnings.json
+quarm-cache.db

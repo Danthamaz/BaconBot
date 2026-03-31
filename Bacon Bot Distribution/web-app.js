@@ -786,11 +786,14 @@ const server = http.createServer(handleRequest);
 
 server.listen(PORT, () => {
   console.log(`\n  BaconBot Web App running at http://localhost:${PORT}\n`);
-  // Import quarm data on startup
+  // Initialize quarm data cache
   const cfg = loadConfig();
-  if (cfg.eqDbPath) {
-    try {
-      quarmDb.initCache();
+  try {
+    quarmDb.initCache();
+    const hasData = quarmDb.getAllZones().length > 0;
+
+    if (cfg.eqDbPath) {
+      // Re-import from SQL dump (maintainer mode)
       const dumpFile = quarmDb.findDumpFile(cfg.eqDbPath);
       if (dumpFile) {
         console.log(`[quarm-db] Importing from ${dumpFile}...`);
@@ -801,9 +804,13 @@ server.listen(PORT, () => {
         }
         console.log('[quarm-db] Import complete');
       }
-    } catch (err) {
-      console.error('[quarm-db] Import failed:', err.message);
+    } else if (hasData) {
+      console.log('[quarm-db] Using pre-built cache');
+    } else {
+      console.log('[quarm-db] No cache data and no eqDbPath configured');
     }
+  } catch (err) {
+    console.error('[quarm-db] Init failed:', err.message);
   }
 }).on('error', err => {
   if (err.code === 'EADDRINUSE') {
