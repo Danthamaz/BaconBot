@@ -529,9 +529,13 @@ function startLive() {
   liveSource.addEventListener('attendance', async e => {
     const d = JSON.parse(e.data);
 
-    // Check if /who zone differs from current zone
-    if (d.zone && $('live-zone').textContent !== '--' && d.zone !== $('live-zone').textContent) {
-      if (confirm(`/who detected in "${d.zone}" but current zone is "${$('live-zone').textContent}".\n\nHas the raid moved to ${d.zone}?`)) {
+    // Check if /who zone differs from current zone or no zone is set
+    const currentZone = $('live-zone').textContent;
+    if (d.zone && d.zone !== currentZone) {
+      const msg = currentZone === '--'
+        ? `/who detected in "${d.zone}". Set this as the current zone?`
+        : `/who detected in "${d.zone}" but current zone is "${currentZone}".\n\nHas the raid moved to ${d.zone}?`;
+      if (confirm(msg)) {
         $('live-zone').textContent = d.zone;
         try {
           await fetch('/api/live/zone', {
