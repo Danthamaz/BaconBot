@@ -426,7 +426,6 @@ function setupLive() {
   $('btn-live-upload').addEventListener('click', uploadLiveSession);
   $('btn-end-raid').addEventListener('click', endRaid);
   $('btn-zone-override').addEventListener('click', overrideZone);
-  $('btn-voice-refresh').addEventListener('click', refreshVoicePanel);
 }
 
 async function overrideZone() {
