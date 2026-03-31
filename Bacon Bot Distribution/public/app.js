@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSettings();
   setupParse();
   setupLive();
+  setupRaidGroups();
   await loadConfig();
 });
 
@@ -974,4 +975,255 @@ async function uploadLiveSession() {
     $('btn-live-upload').textContent = 'Upload Session';
     $('btn-live-upload').disabled = false;
   }, 3000);
+}
+
+// ── Raid Group Organizer ────────────────────────────────────────────────────
+let raidRoster = [];
+let raidGroupsResult = [];
+
+function setupRaidGroups() {
+  $('raidtick-file').addEventListener('change', handleRaidTickUpload);
+  $('btn-generate-groups').addEventListener('click', generateRaidGroups);
+  $('btn-copy-commands').addEventListener('click', copyRaidCommands);
+}
+
+function handleRaidTickUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const lines = ev.target.result.split(/\r?\n/).filter(l => l.trim());
+    raidRoster = [];
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split('\t');
+      if (parts.length < 3) continue;
+      raidRoster.push({ name: parts[0], level: parseInt(parts[1], 10) || 0, class: parts[2] });
+    }
+    if (raidRoster.length === 0) { alert('No players found in file.'); return; }
+    renderRosterSummary();
+    $('btn-generate-groups').disabled = false;
+    $('raidtick-roster').classList.remove('hidden');
+    $('raid-groups-output').classList.add('hidden');
+  };
+  reader.readAsText(file);
+}
+
+function renderRosterSummary() {
+  const classCounts = {};
+  for (const p of raidRoster) {
+    classCounts[p.class] = (classCounts[p.class] || 0) + 1;
+  }
+  const sorted = Object.entries(classCounts).sort((a, b) => b[1] - a[1]);
+  const parts = sorted.map(([cls, count]) => `<strong>${count}</strong> ${cls}`);
+  $('roster-summary').innerHTML = `<strong>${raidRoster.length}</strong> players: ${parts.join(', ')}`;
+}
+
+const CLASS_CATEGORIES = {
+  'Warrior': 'tank', 'Paladin': 'tank', 'Shadow Knight': 'tank',
+  'Monk': 'melee', 'Rogue': 'melee', 'Ranger': 'melee', 'Berserker': 'melee', 'Beastlord': 'melee',
+  'Wizard': 'caster', 'Magician': 'caster', 'Necromancer': 'caster', 'Enchanter': 'caster',
+  'Cleric': 'healer', 'Druid': 'healer', 'Shaman': 'healer',
+  'Bard': 'bard',
+};
+
+function assignRaidGroups(roster) {
+  const MAX_SIZE = 6;
+  const groups = [];
+  let groupNum = 1;
+
+  // Bucket players by category
+  const buckets = { tank: [], melee: [], caster: [], healer: [], bard: [], unknown: [] };
+  for (const p of roster) {
+    const cat = CLASS_CATEGORIES[p.class] || 'unknown';
+    buckets[cat].push(p);
+  }
+
+  // Sort each bucket by class then level descending for consistency
+  for (const cat of Object.keys(buckets)) {
+    buckets[cat].sort((a, b) => a.class.localeCompare(b.class) || b.level - a.level);
+  }
+
+  // ── Group 1: Tank group ──
+  const tankGroup = { number: groupNum++, label: 'Tanks', members: [] };
+
+  // Add all tanks
+  for (const p of buckets.tank) {
+    if (tankGroup.members.length < MAX_SIZE) tankGroup.members.push(p);
+  }
+  buckets.tank = buckets.tank.filter(p => !tankGroup.members.includes(p));
+
+  // Add 1 bard if available
+  if (buckets.bard.length > 0 && tankGroup.members.length < MAX_SIZE) {
+    tankGroup.members.push(buckets.bard.shift());
+  }
+
+  // Add 1 shaman if available
+  const shamanIdx = buckets.healer.findIndex(p => p.class === 'Shaman');
+  if (shamanIdx !== -1 && tankGroup.members.length < MAX_SIZE) {
+    tankGroup.members.push(buckets.healer.splice(shamanIdx, 1)[0]);
+  }
+
+  // Fill remaining with healers
+  while (tankGroup.members.length < MAX_SIZE && buckets.healer.length > 0) {
+    tankGroup.members.push(buckets.healer.shift());
+  }
+
+  groups.push(tankGroup);
+
+  // ── Build melee groups by class stacking ──
+  const meleeGroups = buildClassGroups(buckets.melee, 'Melee', MAX_SIZE);
+
+  // ── Build caster groups by class stacking ──
+  const casterGroups = buildClassGroups(buckets.caster, 'Caster', MAX_SIZE);
+
+  // ── Distribute bards: melee groups first, then caster groups ──
+  const allDpsGroups = [...meleeGroups, ...casterGroups];
+  for (const g of allDpsGroups) {
+    if (buckets.bard.length === 0) break;
+    if (g.members.length < MAX_SIZE) {
+      g.members.push(buckets.bard.shift());
+    }
+  }
+
+  // ── Distribute healers: one per group, spread evenly ──
+  for (const g of allDpsGroups) {
+    if (buckets.healer.length === 0) break;
+    if (g.members.length < MAX_SIZE) {
+      g.members.push(buckets.healer.shift());
+    }
+  }
+
+  // Second pass: distribute remaining healers
+  for (const g of allDpsGroups) {
+    if (buckets.healer.length === 0) break;
+    if (g.members.length < MAX_SIZE) {
+      g.members.push(buckets.healer.shift());
+    }
+  }
+
+  // Number and add melee/caster groups
+  for (const g of meleeGroups) {
+    g.number = groupNum++;
+    groups.push(g);
+  }
+  for (const g of casterGroups) {
+    g.number = groupNum++;
+    groups.push(g);
+  }
+
+  // ── Handle remaining bards, healers, unknown, overflow tanks ──
+  const overflow = [...buckets.bard, ...buckets.healer, ...buckets.tank, ...buckets.unknown];
+  if (overflow.length > 0) {
+    // Try to fill existing groups first
+    for (const p of [...overflow]) {
+      let placed = false;
+      for (const g of groups) {
+        if (g.members.length < MAX_SIZE) {
+          g.members.push(p);
+          overflow.splice(overflow.indexOf(p), 1);
+          placed = true;
+          break;
+        }
+      }
+    }
+    // Create overflow groups for any remaining
+    const overflowGroups = buildClassGroups(overflow, 'Support', MAX_SIZE);
+    for (const g of overflowGroups) {
+      g.number = groupNum++;
+      groups.push(g);
+    }
+  }
+
+  return groups;
+}
+
+function buildClassGroups(players, labelPrefix, maxSize) {
+  if (players.length === 0) return [];
+
+  const groups = [];
+
+  // Group by class first
+  const byClass = {};
+  for (const p of players) {
+    if (!byClass[p.class]) byClass[p.class] = [];
+    byClass[p.class].push(p);
+  }
+
+  // Sort classes by count descending so the largest class stacks first
+  const classEntries = Object.entries(byClass).sort((a, b) => b[1].length - a[1].length);
+
+  // Pack into groups, stacking same classes together
+  let currentGroup = null;
+  for (const [className, classPlayers] of classEntries) {
+    for (const p of classPlayers) {
+      if (!currentGroup || currentGroup.members.length >= maxSize) {
+        currentGroup = { number: 0, label: labelPrefix, members: [] };
+        groups.push(currentGroup);
+      }
+      currentGroup.members.push(p);
+    }
+  }
+
+  // Consolidate: if the last group is less than half full and there are other groups, merge into previous groups
+  if (groups.length > 1) {
+    const last = groups[groups.length - 1];
+    if (last.members.length <= maxSize / 2) {
+      groups.pop();
+      for (const p of last.members) {
+        let placed = false;
+        for (const g of groups) {
+          if (g.members.length < maxSize) {
+            g.members.push(p);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          // Put them back in a new group
+          groups.push({ number: 0, label: labelPrefix, members: [p] });
+        }
+      }
+    }
+  }
+
+  return groups;
+}
+
+function generateRaidGroups() {
+  if (raidRoster.length === 0) return;
+  raidGroupsResult = assignRaidGroups(raidRoster);
+
+  // Preview cards
+  $('raid-groups-preview').innerHTML = raidGroupsResult.map(g => {
+    const members = g.members.map(m =>
+      `<div class="group-member"><span>${m.name}</span><span class="member-class">${m.level} ${m.class}</span></div>`
+    ).join('');
+    return `<div class="group-card"><h4>Group ${g.number}: ${g.label} (${g.members.length})</h4>${members}</div>`;
+  }).join('');
+
+  // /rm commands -- one line per player: /rm PlayerName GroupNumber
+  const commands = raidGroupsResult.flatMap(g =>
+    g.members.map(m => `/rm ${m.name} ${g.number}`)
+  ).join('\n');
+  $('raid-commands').textContent = commands;
+
+  $('raid-groups-output').classList.remove('hidden');
+  $('btn-copy-commands').classList.remove('hidden');
+}
+
+function copyRaidCommands() {
+  const text = $('raid-commands').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    $('btn-copy-commands').textContent = 'Copied!';
+    setTimeout(() => { $('btn-copy-commands').textContent = 'Copy Commands'; }, 2000);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    $('btn-copy-commands').textContent = 'Copied!';
+    setTimeout(() => { $('btn-copy-commands').textContent = 'Copy Commands'; }, 2000);
+  });
 }

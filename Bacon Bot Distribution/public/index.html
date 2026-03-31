@@ -11,12 +11,35 @@
     <h1>BaconBot</h1>
     <nav>
       <button class="tab active" data-view="live">Live Mode</button>
+      <button class="tab" data-view="raidgroups">Raid Groups</button>
       <button class="tab" data-view="parse">Parse</button>
       <button class="tab" data-view="settings">Settings</button>
     </nav>
   </header>
 
   <main>
+    <!-- ═══ Raid Groups View ═══ -->
+    <section id="view-raidgroups" class="view hidden">
+      <div class="controls">
+        <label class="btn-secondary file-upload-label">
+          Upload RaidTick
+          <input type="file" id="raidtick-file" accept=".txt" style="display:none">
+        </label>
+        <button id="btn-generate-groups" class="btn-primary" disabled>Generate Groups</button>
+        <button id="btn-copy-commands" class="btn-secondary hidden">Copy Commands</button>
+      </div>
+      <div id="raidtick-roster" class="hidden">
+        <div class="roster-summary" id="roster-summary"></div>
+      </div>
+      <div id="raid-groups-output" class="hidden">
+        <div id="raid-groups-preview"></div>
+        <div class="commands-block">
+          <h3>Commands</h3>
+          <pre id="raid-commands"></pre>
+        </div>
+      </div>
+    </section>
+
     <!-- ═══ Parse View ═══ -->
     <section id="view-parse" class="view hidden">
       <div class="controls">
