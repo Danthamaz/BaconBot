@@ -661,8 +661,8 @@ async function renderSplitAttendance(players, whoTimestamp) {
   for (const p of players) {
     const key = p.name.toLowerCase();
     const discordName = discordMap.get(key) || null;
-    if (discordName) {
-      linked.push({ ...p, discordName, validated: !!p.validated, inWho: !!p.inWho, inVoice: !!p.inVoice });
+    if (p.linked || discordName) {
+      linked.push({ ...p, discordName: discordName || '', validated: !!p.validated, inWho: !!p.inWho, inVoice: !!p.inVoice });
     } else {
       unlinked.push(p);
     }
