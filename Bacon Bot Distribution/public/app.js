@@ -557,6 +557,7 @@ function startLive() {
 
   liveSource.addEventListener('attendance-update', async e => {
     const d = JSON.parse(e.data);
+    await fetchVoiceMembers();
     await renderSplitAttendance(d.allPlayers, d.timestamp);
   });
 
