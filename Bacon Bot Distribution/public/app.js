@@ -661,9 +661,8 @@ async function renderSplitAttendance(players, whoTimestamp) {
   for (const p of players) {
     const key = p.name.toLowerCase();
     const discordName = discordMap.get(key) || null;
-    const inVoice = voiceNames.has(key);
-    if (discordName) {
-      linked.push({ ...p, discordName, inVoice, validated: !!p.validated });
+    if (p.linked) {
+      linked.push({ ...p, discordName: discordName || '', validated: !!p.validated, inWho: !!p.inWho, inVoice: !!p.inVoice });
     } else {
       // Only show unlinked players seen in a recent /who (within 5 min of latest)
       if (whoTimestamp) {

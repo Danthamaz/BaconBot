@@ -540,7 +540,15 @@ async function handleRequest(req, res) {
           liveClients.forEach(c => sseSend(c, 'zone', data));
         });
         liveWatcher.on('attendance', async data => {
-          // Fetch voice members and validate attendance
+          // Fetch voice members and all linked characters
+          let allLinkedChars = new Set();
+          try {
+            const linkedResult = await apiGet(`${serverUrl}/all-linked`, apiKey);
+            if (linkedResult.status === 200 && linkedResult.body.characters) {
+              for (const c of linkedResult.body.characters) allLinkedChars.add(c.toLowerCase());
+            }
+          } catch {}
+
           try {
             const voiceResult = await apiGet(`${serverUrl}/voice-members`, apiKey);
             if (voiceResult.status === 200 && voiceResult.body.members) {
@@ -587,6 +595,7 @@ async function handleRequest(req, res) {
             validated: p.validated,
             inWho: p.inWho,
             inVoice: p.inVoice,
+            linked: allLinkedChars.has(p.name.toLowerCase()),
           }));
           const updated = { ...data, allPlayers: allPlayersWithTime };
           liveClients.forEach(c => sseSend(c, 'attendance', updated));
