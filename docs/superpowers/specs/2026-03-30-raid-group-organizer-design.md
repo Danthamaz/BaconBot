@@ -66,21 +66,15 @@ Group 2 (Melee)
 
 ### Command Output
 
-Below the preview, a copyable text block:
+Below the preview, a copyable text block using `/rm name group#`:
 
 ```
-/target Tankname
-/raidmove 1
-/target Offtank
-/raidmove 1
-/target Healername
-/raidmove 1
-/target Bardname
-/raidmove 1
-/target Monkname
-/raidmove 2
-/target Monkname2
-/raidmove 2
+/rm Tankname 1
+/rm Offtank 1
+/rm Healername 1
+/rm Bardname 1
+/rm Monkname 2
+/rm Monkname2 2
 ```
 
 Copy button copies the entire block to clipboard.
@@ -92,7 +86,7 @@ New "Raid Groups" tab in the web app (between Live Mode and Parse).
 - **File upload button** — accepts RaidTick .txt files
 - **Roster display** — shows parsed players with class counts
 - **Generate button** — runs the algorithm and shows preview + commands
-- **Copy button** — copies the `/target` + `/raidmove` command block to clipboard
+- **Copy button** — copies the `/rm` + `/raidmove` command block to clipboard
 
 ## No Server Dependency
 
