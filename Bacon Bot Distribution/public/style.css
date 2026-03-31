@@ -784,6 +784,7 @@ footer {
 .row-excluded td { text-decoration: line-through; }
 
 /* ── Raid Groups ─────────────────────────────────────────────────────── */
+.raidtick-status { font-size: 12px; color: var(--text-dim); }
 .roster-summary { margin-bottom: 16px; font-size: 13px; color: var(--text-dim); }
 .roster-summary strong { color: var(--text); }
 
