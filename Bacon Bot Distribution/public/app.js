@@ -265,12 +265,15 @@ function filterByRange(allSessions, range) {
 // ── Voice cross-reference ────────────────────────────────────────────────────
 async function fetchVoiceMembers() {
   try {
-    const res = await fetch('/api/voice-members');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch('/api/voice-members', { signal: controller.signal });
+    clearTimeout(timeout);
     if (res.ok) {
       const data = await res.json();
       voiceMembers = data.members || [];
     } else {
-      voiceMembers = null; // voice check unavailable
+      voiceMembers = null;
     }
   } catch {
     voiceMembers = null;
@@ -534,6 +537,7 @@ function startLive() {
 
     // Check if /who zone differs from current zone or no zone is set
     const currentZone = $('live-zone').textContent;
+    console.log('[zone check] event zone:', d.zone, 'current zone:', currentZone, 'match:', d.zone === currentZone);
     if (d.zone && d.zone !== currentZone) {
       const msg = currentZone === '--'
         ? `/who detected in "${d.zone}". Set this as the current zone?`
@@ -550,9 +554,16 @@ function startLive() {
       }
     }
 
-    await fetchVoiceMembers();
-    await renderSplitAttendance(d.allPlayers, d.timestamp);
-    refreshVoicePanel();
+    try {
+      console.log('[attendance] fetching voice...');
+      await fetchVoiceMembers();
+      console.log('[attendance] voice fetched, voiceMembers:', voiceMembers?.length);
+      await renderSplitAttendance(d.allPlayers, d.timestamp);
+      console.log('[attendance] render complete');
+      refreshVoicePanel();
+    } catch (err) {
+      console.error('[attendance handler error]', err);
+    }
   });
 
   liveSource.addEventListener('attendance-update', async e => {
@@ -670,6 +681,7 @@ async function renderSplitAttendance(players, whoTimestamp) {
     }
   }
 
+  console.log('[render] linked:', linked.length, 'unlinked:', unlinked.length);
   $('live-attend-count').textContent = linked.length;
   $('live-unlinked-count').textContent = unlinked.length;
 
