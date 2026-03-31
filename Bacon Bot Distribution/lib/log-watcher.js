@@ -191,11 +191,15 @@ class LogWatcher extends EventEmitter {
               lastSeen: data.lastSeen,
               exitTime: data.exitTime || null,
               validated: !!data.validated,
+              inWho: !!data.inWho,
+              inVoice: !!data.inVoice,
             });
           } else {
             if (data.zone && !existing.zones.includes(data.zone)) existing.zones.push(data.zone);
             if (data.lastSeen > existing.lastSeen) existing.lastSeen = data.lastSeen;
             if (data.validated) existing.validated = true;
+            if (data.inWho) existing.inWho = true;
+            if (data.inVoice) existing.inVoice = true;
             if (data.exitTime && (!existing.exitTime || data.exitTime > existing.exitTime)) existing.exitTime = data.exitTime;
           }
         }
@@ -205,6 +209,8 @@ class LogWatcher extends EventEmitter {
           lastSeen: p.lastSeen.toISOString(),
           exitTime: p.exitTime ? p.exitTime.toISOString() : null,
           validated: p.validated,
+          inWho: p.inWho,
+          inVoice: p.inVoice,
         }));
 
         this.emit('attendance', {
@@ -304,8 +310,11 @@ class LogWatcher extends EventEmitter {
     const now = new Date();
     for (const [key, data] of this.attendanceMap) {
       const name = key.split(':')[0];
-      const inWho = whoPlayerNames ? whoPlayerNames.has(name) : true;
-      if (inWho && voiceConfirmedNames.has(name)) {
+      const inWho = whoPlayerNames ? whoPlayerNames.has(name) : false;
+      const inVoice = voiceConfirmedNames.has(name);
+      data.inWho = inWho;
+      data.inVoice = inVoice;
+      if (inWho && inVoice) {
         data.lastSeen = now;
         data.validated = true;
       } else {

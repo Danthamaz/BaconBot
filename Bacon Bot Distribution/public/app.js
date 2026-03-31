@@ -687,11 +687,16 @@ async function renderSplitAttendance(players, whoTimestamp) {
       : new Date(p.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const exitClass = exited ? ' attend-exited' : '';
     const exitLabel = exited ? 'exited ' : '';
-    const icon = p.validated && p.inVoice
-      ? '<span class="status-icon status-confirmed" title="Confirmed (zone + voice)">&#10003;</span> '
-      : p.inVoice
-        ? '<span class="status-icon status-voice" title="In voice, not confirmed in zone">&#9679;</span> '
-        : '<span class="status-icon status-missing" title="Not in voice">&#10007;</span> ';
+    let icon;
+    if (p.inWho && p.inVoice) {
+      icon = '<span class="status-icon status-confirmed" title="In zone + voice">&#10003;</span> ';
+    } else if (p.inVoice) {
+      icon = '<span class="status-icon status-voice" title="In voice only">&#9679;</span> ';
+    } else if (p.inWho) {
+      icon = '<span class="status-icon status-zone" title="In zone only">&#9651;</span> ';
+    } else {
+      icon = '<span class="status-icon status-missing" title="Not in zone or voice">&#10007;</span> ';
+    }
     const exitBtn = exited
       ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${p.name}','clear-exit')">\u21a9</span>`
       : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${p.name}','exit')">\u23f9</span>`;

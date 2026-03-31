@@ -567,11 +567,15 @@ async function handleRequest(req, res) {
                 lastSeen: d.lastSeen,
                 exitTime: d.exitTime || null,
                 validated: !!d.validated,
+                inWho: !!d.inWho,
+                inVoice: !!d.inVoice,
               });
             } else {
               if (d.zone && !existing.zones.includes(d.zone)) existing.zones.push(d.zone);
               if (d.lastSeen > existing.lastSeen) existing.lastSeen = d.lastSeen;
               if (d.validated) existing.validated = true;
+              if (d.inWho) existing.inWho = true;
+              if (d.inVoice) existing.inVoice = true;
               if (d.exitTime && (!existing.exitTime || d.exitTime > existing.exitTime)) existing.exitTime = d.exitTime;
             }
           }
@@ -581,6 +585,8 @@ async function handleRequest(req, res) {
             lastSeen: p.lastSeen.toISOString(),
             exitTime: p.exitTime ? p.exitTime.toISOString() : null,
             validated: p.validated,
+            inWho: p.inWho,
+            inVoice: p.inVoice,
           }));
           const updated = { ...data, allPlayers: allPlayersWithTime };
           liveClients.forEach(c => sseSend(c, 'attendance', updated));
@@ -650,18 +656,21 @@ async function handleRequest(req, res) {
             playerMap.set(lowerName, {
               name: d.name, zones: d.zone ? [d.zone] : [],
               lastSeen: d.lastSeen, exitTime: d.exitTime || null, validated: !!d.validated,
+              inWho: !!d.inWho, inVoice: !!d.inVoice,
             });
           } else {
             if (d.zone && !existing.zones.includes(d.zone)) existing.zones.push(d.zone);
             if (d.lastSeen > existing.lastSeen) existing.lastSeen = d.lastSeen;
             if (d.validated) existing.validated = true;
+            if (d.inWho) existing.inWho = true;
+            if (d.inVoice) existing.inVoice = true;
           }
         }
         const allPlayers = Array.from(playerMap.values()).map(p => ({
           name: p.name, zones: p.zones,
           lastSeen: p.lastSeen.toISOString(),
           exitTime: p.exitTime ? p.exitTime.toISOString() : null,
-          validated: p.validated,
+          validated: p.validated, inWho: p.inWho, inVoice: p.inVoice,
         }));
 
         sseSend(res, 'attendance', {

@@ -536,9 +536,10 @@ textarea:focus { outline: none; border-color: var(--accent); }
   text-align: center;
   flex-shrink: 0;
 }
-.status-confirmed { color: var(--text); }   /* ✓ checkmark */
-.status-voice     { color: var(--amber); }  /* ● dot */
-.status-missing   { color: var(--text-dim); } /* ✗ x-mark */
+.status-confirmed { color: var(--text); }   /* ✓ in zone + voice */
+.status-voice     { color: var(--amber); }  /* ● voice only */
+.status-zone      { color: var(--blue); }   /* △ zone only */
+.status-missing   { color: var(--text-dim); } /* ✗ neither */
 
 .attend-name { flex: 1; }
 
