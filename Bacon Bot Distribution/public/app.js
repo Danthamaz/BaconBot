@@ -665,12 +665,8 @@ async function renderSplitAttendance(players, whoTimestamp) {
     if (isLinked) {
       linked.push({ ...p, discordName: discordName || '', validated: !!p.validated, inWho: !!p.inWho, inVoice: !!p.inVoice });
     } else {
-      // Only show unlinked players seen in a recent /who (within 5 min of latest)
-      if (whoTimestamp) {
-        const whoTime = new Date(whoTimestamp).getTime();
-        const playerTime = new Date(p.lastSeen).getTime();
-        if (whoTime - playerTime <= 5 * 60 * 1000) unlinked.push(p);
-      } else {
+      // Show unlinked players if they were in the last /who or if no /who has happened yet (restored session)
+      if (p.inWho || !whoTimestamp) {
         unlinked.push(p);
       }
     }
