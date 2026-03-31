@@ -7,7 +7,7 @@ const { parseEQDateUTC } = require('./parser');
 // Duplicated from parser.js (not exported individually)
 const LINE_RE        = /^\[(\w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4})\] (.*)$/;
 const ZONE_ENTRY_RE  = /^You have entered (.+)\.$/;
-const WHO_FOOTER_RE  = /^There are \d+ players in (.+)\.$/;
+const WHO_FOOTER_RE  = /^There (?:are|is) \d+ players? in (.+)\.$/;
 const WHO_PLAYER_RE  = /^\[(\d+ [^\]]+|ANONYMOUS)\] ([\w`'-]+)(?:\s+\(([^)]+)\))?(?:\s+<([^>]+)>)?/;
 const SELF_LOOT_RE   = /^--You have looted an? (.+?)\s*\.--$/;
 const OTHER_LOOT_RE  = /^--([\w`'-]+) has looted an? (.+?)\s*\.--$/;
