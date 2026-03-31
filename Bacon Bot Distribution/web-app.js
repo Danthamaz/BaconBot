@@ -659,6 +659,7 @@ async function handleRequest(req, res) {
       }
 
       if (liveWatcher.attendanceMap.size > 0 || liveWatcher.lootEvents.length > 0) {
+        console.log(`[replay] Replaying ${liveWatcher.attendanceMap.size} attendance entries, ${liveWatcher.lootEvents.length} loot`);
         // Fetch linked characters for replay
         let replayLinkedChars = new Set();
         try {
@@ -689,8 +690,8 @@ async function handleRequest(req, res) {
         }
         const allPlayers = Array.from(playerMap.values()).map(p => ({
           name: p.name, zones: p.zones,
-          lastSeen: p.lastSeen.toISOString(),
-          exitTime: p.exitTime ? p.exitTime.toISOString() : null,
+          lastSeen: p.lastSeen instanceof Date ? p.lastSeen.toISOString() : String(p.lastSeen || ''),
+          exitTime: p.exitTime ? (p.exitTime instanceof Date ? p.exitTime.toISOString() : String(p.exitTime)) : null,
           validated: p.validated, inWho: p.inWho, inVoice: p.inVoice,
           linked: replayLinkedChars.has(p.name.toLowerCase()),
         }));
