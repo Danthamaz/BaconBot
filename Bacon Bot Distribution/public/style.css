@@ -827,3 +827,83 @@ footer {
   overflow-y: auto;
   user-select: all;
 }
+
+/* ── Zone Combo Box ──────────────────────────────────────────────────── */
+.zone-combo { position: relative; }
+
+.zone-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.zone-tag {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zone-tag .zone-tag-remove {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.zone-tag .zone-tag-remove:hover { color: var(--red); }
+
+.zone-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  z-index: 10;
+}
+
+.zone-dropdown-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.zone-dropdown-item:hover { background: rgba(255,255,255,0.05); }
+
+/* ── Item Filters ────────────────────────────────────────────────────── */
+.item-results { max-height: 500px; overflow-y: auto; }
+
+.item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 13px;
+}
+.item-row:hover { background: rgba(255,255,255,0.03); }
+
+.item-name { flex: 1; }
+.item-actions { display: flex; gap: 8px; }
+
+.item-star, .item-trash {
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--text-dim);
+  transition: color 0.15s;
+}
+.item-star:hover, .item-star.active { color: var(--amber); }
+.item-trash:hover, .item-trash.active { color: var(--red); }
+
+/* ── Loot Starred Highlight ──────────────────────────────────────────── */
+.loot-starred {
+  background: rgba(255,171,0,0.1);
+  border-left: 3px solid var(--amber);
+  padding-left: 8px;
+}

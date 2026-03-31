@@ -8,6 +8,8 @@ let voiceMembers = null; // null = not fetched, [] = fetched but empty
 let liveSource   = null;
 let liveRunning  = false;
 let voiceInterval = null;
+let allZones     = [];
+let searchTimeout = null;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -19,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupParse();
   setupLive();
   setupRaidGroups();
+  setupItemFilters();
   await loadConfig();
 });
 
@@ -58,8 +61,11 @@ async function loadConfig() {
     $('cfg-raid-start').value = config.raidStartUTC ?? 13;
     $('cfg-raid-end').value   = config.raidEndUTC ?? 17;
 
-    // Approved zones
-    $('cfg-zones').value = (config.approvedZones || []).slice().sort((a, b) => a.localeCompare(b)).join('\n');
+    // Zone combo box
+    await loadZoneList();
+    setupZoneCombo();
+    renderZoneTags();
+    $('cfg-eqdbpath').value = config.eqDbPath || '';
 
     // Ignored items
     $('cfg-ignored-items').value = (config.ignoredItems || []).slice().sort((a, b) => a.localeCompare(b)).join('\n');
@@ -93,12 +99,9 @@ async function saveSettings() {
   config.raidStartUTC = parseInt($('cfg-raid-start').value, 10) || 13;
   config.raidEndUTC   = parseInt($('cfg-raid-end').value, 10) || 17;
 
-  // Approved zones
-  config.approvedZones = $('cfg-zones').value
-    .split('\n')
-    .map(z => z.trim())
-    .filter(z => z.length > 0)
-    .sort((a, b) => a.localeCompare(b));
+  // EQ Database Path
+  config.eqDbPath = $('cfg-eqdbpath').value.trim();
+  // config.approvedZones is already maintained by addZone/removeZone
 
   // Ignored items
   config.ignoredItems = $('cfg-ignored-items').value
@@ -535,6 +538,8 @@ function startLive() {
     div.dataset.index = idx;
     div.dataset.looter = d.playerName || '?';
     div.innerHTML = renderLootEntry(idx, d.playerName || '?', null, d.itemName);
+    const isStarred = (config.starredItems || []).some(s => s.toLowerCase() === d.itemName.toLowerCase());
+    if (isStarred) div.classList.add('loot-starred');
     $('live-loot').appendChild(div);
     $('live-loot').scrollTop = $('live-loot').scrollHeight;
   });
@@ -976,6 +981,128 @@ async function uploadLiveSession() {
     $('btn-live-upload').disabled = false;
   }, 3000);
 }
+
+// ── Zone Combo Box ──────────────────────────────────────────────────────────
+async function loadZoneList() {
+  try {
+    const res = await fetch('/api/zones');
+    if (res.ok) allZones = await res.json();
+  } catch {}
+}
+
+function renderZoneTags() {
+  const tags = (config.approvedZones || []).slice().sort((a, b) => a.localeCompare(b));
+  $('zone-tags').innerHTML = tags.map(z =>
+    `<span class="zone-tag">${z}<span class="zone-tag-remove" onclick="removeZone('${z.replace(/'/g, "\\'")}')">&times;</span></span>`
+  ).join('');
+}
+
+window.removeZone = function(zoneName) {
+  config.approvedZones = (config.approvedZones || []).filter(z => z !== zoneName);
+  renderZoneTags();
+};
+
+window.addZone = function(zoneName) {
+  if (!config.approvedZones) config.approvedZones = [];
+  if (!config.approvedZones.includes(zoneName)) config.approvedZones.push(zoneName);
+  renderZoneTags();
+  $('cfg-zone-search').value = '';
+  $('zone-dropdown').classList.add('hidden');
+};
+
+function setupZoneCombo() {
+  const input = $('cfg-zone-search');
+  const dropdown = $('zone-dropdown');
+
+  input.addEventListener('input', () => {
+    const q = input.value.toLowerCase().trim();
+    if (q.length < 1) { dropdown.classList.add('hidden'); return; }
+    const selected = new Set((config.approvedZones || []).map(z => z.toLowerCase()));
+    const matches = allZones.filter(z =>
+      z.long_name.toLowerCase().includes(q) && !selected.has(z.long_name.toLowerCase())
+    ).slice(0, 20);
+    if (matches.length === 0) { dropdown.classList.add('hidden'); return; }
+    dropdown.innerHTML = matches.map(z =>
+      `<div class="zone-dropdown-item" onclick="addZone('${z.long_name.replace(/'/g, "\\'")}')">${z.long_name}</div>`
+    ).join('');
+    dropdown.classList.remove('hidden');
+  });
+
+  input.addEventListener('blur', () => {
+    setTimeout(() => dropdown.classList.add('hidden'), 200);
+  });
+}
+
+// ── Item Filters ────────────────────────────────────────────────────────────
+function setupItemFilters() {
+  $('item-search').addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(doItemSearch, 300);
+  });
+}
+
+async function doItemSearch() {
+  const q = $('item-search').value.trim();
+  if (q.length < 2) { $('item-results').innerHTML = ''; return; }
+
+  try {
+    const res = await fetch(`/api/items?q=${encodeURIComponent(q)}`);
+    if (!res.ok) return;
+    const items = await res.json();
+    const starred = new Set((config.starredItems || []).map(i => i.toLowerCase()));
+    const ignored = new Set((config.ignoredItems || []).map(i => i.toLowerCase()));
+
+    $('item-results').innerHTML = items.map(item => {
+      const isStarred = starred.has(item.item_name.toLowerCase());
+      const isTrashed = ignored.has(item.item_name.toLowerCase());
+      const starClass = isStarred ? ' active' : '';
+      const trashClass = isTrashed ? ' active' : '';
+      return `<div class="item-row">
+        <span class="item-name">${item.item_name}</span>
+        <span class="item-actions">
+          <span class="item-star${starClass}" title="Mark valuable" onclick="toggleStarItem('${item.item_name.replace(/'/g, "\\'")}')">&#9733;</span>
+          <span class="item-trash${trashClass}" title="Ignore item" onclick="toggleTrashItem('${item.item_name.replace(/'/g, "\\'")}')">&#128465;</span>
+        </span>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+window.toggleStarItem = async function(itemName) {
+  const starred = (config.starredItems || []).map(i => i.toLowerCase());
+  const isStarred = starred.includes(itemName.toLowerCase());
+  try {
+    const res = await fetch('/api/star-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemName, starred: !isStarred }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      config.starredItems = data.starredItems;
+      doItemSearch();
+    }
+  } catch {}
+};
+
+window.toggleTrashItem = async function(itemName) {
+  const ignored = (config.ignoredItems || []).map(i => i.toLowerCase());
+  const isIgnored = ignored.includes(itemName.toLowerCase());
+  if (isIgnored) {
+    config.ignoredItems = config.ignoredItems.filter(i => i.toLowerCase() !== itemName.toLowerCase());
+  } else {
+    if (!config.ignoredItems) config.ignoredItems = [];
+    config.ignoredItems.push(itemName);
+  }
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ignoredItems: config.ignoredItems }),
+    });
+    doItemSearch();
+  } catch {}
+};
 
 // ── Raid Group Organizer ────────────────────────────────────────────────────
 let raidRoster = [];
