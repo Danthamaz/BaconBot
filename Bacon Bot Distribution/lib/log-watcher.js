@@ -23,7 +23,7 @@ function zoneMatchesFilters(zoneName, filters) {
 }
 
 class LogWatcher extends EventEmitter {
-  constructor({ filePath, timezone, characterName, approvedZones, raidDays, raidStartUTC, raidEndUTC, ignoredItems }) {
+  constructor({ filePath, timezone, characterName, approvedZones, raidDays, raidStartUTC, raidEndUTC, ignoredItems, starredItems }) {
     super();
     this.filePath      = filePath;
     this.timezone      = timezone;
@@ -47,6 +47,7 @@ class LogWatcher extends EventEmitter {
     this.raidStartUTC        = raidStartUTC ?? 13;
     this.raidEndUTC          = raidEndUTC ?? 17;
     this.ignoredItems        = new Set((ignoredItems || []).map(i => i.toLowerCase()));
+    this.starredItems        = new Set((starredItems || []).map(i => i.toLowerCase()));
   }
 
   _isInRaidWindow(utcDate) {
@@ -70,6 +71,14 @@ class LogWatcher extends EventEmitter {
 
   setIgnoredItems(items) {
     this.ignoredItems = new Set((items || []).map(i => i.toLowerCase()));
+  }
+
+  setStarredItems(items) {
+    this.starredItems = new Set((items || []).map(i => i.toLowerCase()));
+  }
+
+  _isStarredItem(itemName) {
+    return this.starredItems.has(itemName.toLowerCase());
   }
 
   start() {
@@ -237,6 +246,9 @@ class LogWatcher extends EventEmitter {
       };
       this.lootEvents.push(lootItem);
       this.emit('loot', { ...lootItem, timestamp: utcTs.toISOString() });
+      if (this._isStarredItem(lootItem.itemName)) {
+        this.emit('starred-loot', { ...lootItem, timestamp: utcTs.toISOString() });
+      }
       return;
     }
 
@@ -252,6 +264,9 @@ class LogWatcher extends EventEmitter {
       };
       this.lootEvents.push(lootItem);
       this.emit('loot', { ...lootItem, timestamp: utcTs.toISOString() });
+      if (this._isStarredItem(lootItem.itemName)) {
+        this.emit('starred-loot', { ...lootItem, timestamp: utcTs.toISOString() });
+      }
     }
   }
 

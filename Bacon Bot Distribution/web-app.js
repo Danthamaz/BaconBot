@@ -496,6 +496,7 @@ async function handleRequest(req, res) {
           raidStartUTC:  cfg.raidStartUTC,
           raidEndUTC:    cfg.raidEndUTC,
           ignoredItems:  cfg.ignoredItems || [],
+          starredItems:  cfg.starredItems || [],
         });
 
         liveWatcher.on('zone', data => {
@@ -553,6 +554,20 @@ async function handleRequest(req, res) {
         });
         liveWatcher.on('raid-ended', data => {
           liveClients.forEach(c => sseSend(c, 'raid-ended', data));
+        });
+
+        liveWatcher.on('starred-loot', async data => {
+          try {
+            await apiPost(`${serverUrl}/alert`, {
+              itemName: data.itemName,
+              playerName: data.playerName,
+              zone: data.zone,
+              timestamp: data.timestamp,
+            }, apiKey);
+          } catch (err) {
+            console.error('[alert] Failed to post Discord alert:', err.message);
+          }
+          liveClients.forEach(c => sseSend(c, 'starred-loot', data));
         });
 
         liveWatcher.start();
