@@ -1285,6 +1285,7 @@ function assignRaidGroups(roster) {
   }
 
   // ── Distribute healers: one per group, spread evenly ──
+  const allDpsGroups = [...meleeGroups, ...casterGroups];
   for (const g of allDpsGroups) {
     if (buckets.healer.length === 0) break;
     if (g.members.length < MAX_SIZE) {
@@ -1389,7 +1390,8 @@ function buildClassGroups(players, labelPrefix, maxSize) {
 }
 
 function generateRaidGroups() {
-  if (raidRoster.length === 0) return;
+  if (raidRoster.length === 0) { alert('No roster loaded'); return; }
+  try {
   raidGroupsResult = assignRaidGroups(raidRoster);
 
   // Preview cards
@@ -1408,6 +1410,7 @@ function generateRaidGroups() {
 
   $('raid-groups-output').classList.remove('hidden');
   $('btn-copy-commands').classList.remove('hidden');
+  } catch (err) { alert('Error generating groups: ' + err.message); console.error(err); }
 }
 
 function copyRaidCommands() {
