@@ -768,6 +768,25 @@ async function handleRequest(req, res) {
       }
     }
 
+    // ── GET /api/raidtick ─────────────────────────────────────────
+    if (req.method === 'GET' && route === '/api/raidtick') {
+      const cfg = loadConfig();
+      if (!cfg.eqFolder) return json(400, { error: 'eqFolder not configured in Settings' });
+      try {
+        const files = fs.readdirSync(cfg.eqFolder)
+          .filter(f => f.startsWith('RaidTick-') && f.endsWith('.txt'))
+          .sort()
+          .reverse();
+        if (files.length === 0) return json(404, { error: 'No RaidTick files found' });
+        const latest = files[0];
+        const filePath = path.join(cfg.eqFolder, latest);
+        const content = fs.readFileSync(filePath, 'utf8');
+        return json(200, { file: latest, content });
+      } catch (err) {
+        return json(500, { error: err.message });
+      }
+    }
+
     // ── Static files ────────────────────────────────────────────
     if (req.method === 'GET' && !route.startsWith('/api/')) {
       return serveStatic(req, res);

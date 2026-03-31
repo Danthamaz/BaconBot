@@ -784,7 +784,6 @@ footer {
 .row-excluded td { text-decoration: line-through; }
 
 /* ── Raid Groups ─────────────────────────────────────────────────────── */
-.file-upload-label { cursor: pointer; display: inline-block; }
 .roster-summary { margin-bottom: 16px; font-size: 13px; color: var(--text-dim); }
 .roster-summary strong { color: var(--text); }
 

@@ -1109,17 +1109,23 @@ let raidRoster = [];
 let raidGroupsResult = [];
 
 function setupRaidGroups() {
-  $('raidtick-file').addEventListener('change', handleRaidTickUpload);
+  $('btn-load-raidtick').addEventListener('click', loadLatestRaidTick);
   $('btn-generate-groups').addEventListener('click', generateRaidGroups);
   $('btn-copy-commands').addEventListener('click', copyRaidCommands);
 }
 
-function handleRaidTickUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function(ev) {
-    const lines = ev.target.result.split(/\r?\n/).filter(l => l.trim());
+async function loadLatestRaidTick() {
+  $('btn-load-raidtick').disabled = true;
+  $('btn-load-raidtick').textContent = 'Loading...';
+  try {
+    const res = await fetch('/api/raidtick');
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'Failed to load RaidTick');
+      return;
+    }
+    const data = await res.json();
+    const lines = data.content.split(/\r?\n/).filter(l => l.trim());
     raidRoster = [];
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split('\t');
@@ -1127,12 +1133,20 @@ function handleRaidTickUpload(e) {
       raidRoster.push({ name: parts[0], level: parseInt(parts[1], 10) || 0, class: parts[2] });
     }
     if (raidRoster.length === 0) { alert('No players found in file.'); return; }
+    $('btn-load-raidtick').textContent = `Loaded: ${data.file}`;
     renderRosterSummary();
     $('btn-generate-groups').disabled = false;
     $('raidtick-roster').classList.remove('hidden');
     $('raid-groups-output').classList.add('hidden');
-  };
-  reader.readAsText(file);
+  } catch (err) {
+    alert('Failed to load RaidTick: ' + err.message);
+  } finally {
+    $('btn-load-raidtick').disabled = false;
+    setTimeout(() => {
+      if ($('btn-load-raidtick').textContent.startsWith('Loaded:')) return;
+      $('btn-load-raidtick').textContent = 'Load Latest RaidTick';
+    }, 0);
+  }
 }
 
 function renderRosterSummary() {
