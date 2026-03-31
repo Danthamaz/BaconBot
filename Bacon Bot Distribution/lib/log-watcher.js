@@ -212,6 +212,7 @@ class LogWatcher extends EventEmitter {
           total:      this.attendanceMap.size,
           newPlayers,
           allPlayers: allPlayersWithTime,
+          whoPlayers: this.whoPlayers.map(p => p.name.toLowerCase()),
           timestamp:  this.whoBlockUTC.toISOString(),
         });
         return;
@@ -299,11 +300,12 @@ class LogWatcher extends EventEmitter {
    * Update lastSeen only for players confirmed in both zone and voice.
    * @param {Set<string>} voiceConfirmedNames — lowercased character names confirmed in voice
    */
-  validatePlayers(voiceConfirmedNames) {
+  validatePlayers(voiceConfirmedNames, whoPlayerNames) {
     const now = new Date();
     for (const [key, data] of this.attendanceMap) {
       const name = key.split(':')[0];
-      if (voiceConfirmedNames.has(name)) {
+      const inWho = whoPlayerNames ? whoPlayerNames.has(name) : true;
+      if (inWho && voiceConfirmedNames.has(name)) {
         data.lastSeen = now;
         data.validated = true;
       } else {

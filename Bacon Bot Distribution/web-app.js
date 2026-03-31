@@ -549,8 +549,9 @@ async function handleRequest(req, res) {
                 const chars = vm.characters || (vm.character ? [vm.character] : []);
                 for (const ch of chars) voiceConfirmed.add(ch.toLowerCase());
               }
-              // Only update lastSeen for players in both zone and voice
-              liveWatcher.validatePlayers(voiceConfirmed);
+              // Only update lastSeen for players in both /who AND voice
+              const whoNames = data.whoPlayers ? new Set(data.whoPlayers) : null;
+              liveWatcher.validatePlayers(voiceConfirmed, whoNames);
             }
           } catch {}
 
