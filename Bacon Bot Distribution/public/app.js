@@ -665,10 +665,7 @@ async function renderSplitAttendance(players, whoTimestamp) {
     if (isLinked) {
       linked.push({ ...p, discordName: discordName || '', validated: !!p.validated, inWho: !!p.inWho, inVoice: !!p.inVoice });
     } else {
-      // Show unlinked players if they were in the last /who or if no /who has happened yet (restored session)
-      if (p.inWho || !whoTimestamp) {
-        unlinked.push(p);
-      }
+      unlinked.push(p);
     }
   }
 
