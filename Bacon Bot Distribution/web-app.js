@@ -656,6 +656,15 @@ async function handleRequest(req, res) {
       }
 
       if (liveWatcher.attendanceMap.size > 0 || liveWatcher.lootEvents.length > 0) {
+        // Fetch linked characters for replay
+        let replayLinkedChars = new Set();
+        try {
+          const linkedResult = await apiGet(`${serverUrl}/all-linked`, apiKey);
+          if (linkedResult.status === 200 && linkedResult.body.characters) {
+            for (const c of linkedResult.body.characters) replayLinkedChars.add(c.toLowerCase());
+          }
+        } catch {}
+
         // Build deduped attendance for UI
         const playerMap = new Map();
         for (const [key, d] of liveWatcher.attendanceMap) {
@@ -680,6 +689,7 @@ async function handleRequest(req, res) {
           lastSeen: p.lastSeen.toISOString(),
           exitTime: p.exitTime ? p.exitTime.toISOString() : null,
           validated: p.validated, inWho: p.inWho, inVoice: p.inVoice,
+          linked: replayLinkedChars.has(p.name.toLowerCase()),
         }));
 
         sseSend(res, 'attendance', {
