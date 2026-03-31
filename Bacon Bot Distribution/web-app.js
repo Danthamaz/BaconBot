@@ -190,7 +190,8 @@ async function autoSaveLiveSession() {
     if (voiceResult.status === 200 && voiceResult.body.members) {
       const linkedChars = new Set();
       for (const vm of voiceResult.body.members) {
-        if (vm.character) linkedChars.add(vm.character.toLowerCase());
+        const chars = vm.characters || (vm.character ? [vm.character] : []);
+        for (const ch of chars) linkedChars.add(ch.toLowerCase());
       }
       attendance = attendance.filter(a => a.validated && linkedChars.has(a.name.toLowerCase()));
     }
@@ -382,7 +383,8 @@ async function handleRequest(req, res) {
         if (voiceResult.status === 200 && voiceResult.body.members) {
           const linkedChars = new Set();
           for (const vm of voiceResult.body.members) {
-            if (vm.character) linkedChars.add(vm.character.toLowerCase());
+            const chars = vm.characters || (vm.character ? [vm.character] : []);
+        for (const ch of chars) linkedChars.add(ch.toLowerCase());
           }
           attendance = attendance.filter(a => a.validated && linkedChars.has(a.name.toLowerCase()));
         }
@@ -509,7 +511,8 @@ async function handleRequest(req, res) {
             if (voiceResult.status === 200 && voiceResult.body.members) {
               const voiceConfirmed = new Set();
               for (const vm of voiceResult.body.members) {
-                if (vm.character) voiceConfirmed.add(vm.character.toLowerCase());
+                const chars = vm.characters || (vm.character ? [vm.character] : []);
+                for (const ch of chars) voiceConfirmed.add(ch.toLowerCase());
               }
               // Only update lastSeen for players in both zone and voice
               liveWatcher.validatePlayers(voiceConfirmed);

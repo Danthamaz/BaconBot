@@ -279,7 +279,8 @@ function tagAttendanceWithVoice(session) {
   // Build a set of lowercased character names + display names from voice
   const voiceNames = new Set();
   for (const vm of voiceMembers) {
-    if (vm.character) voiceNames.add(vm.character.toLowerCase());
+    const chars = vm.characters || (vm.character ? [vm.character] : []);
+    for (const ch of chars) voiceNames.add(ch.toLowerCase());
     voiceNames.add(vm.displayName.toLowerCase());
   }
   let inVoiceCount = 0;
@@ -613,9 +614,10 @@ async function renderSplitAttendance(players) {
   const discordMap = new Map();
   if (voiceMembers) {
     for (const vm of voiceMembers) {
-      if (vm.character) {
-        voiceNames.add(vm.character.toLowerCase());
-        discordMap.set(vm.character.toLowerCase(), vm.displayName);
+      const chars = vm.characters || (vm.character ? [vm.character] : []);
+      for (const ch of chars) {
+        voiceNames.add(ch.toLowerCase());
+        discordMap.set(ch.toLowerCase(), vm.displayName);
       }
     }
   }
@@ -688,8 +690,9 @@ async function refreshVoicePanel() {
   }
   $('live-voice-count').textContent = voiceMembers.length;
   $('live-voice').innerHTML = voiceMembers.map(vm => {
-    const charTag = vm.character
-      ? `<span class="voice-char">${vm.character}</span>`
+    const chars = vm.characters || (vm.character ? [vm.character] : []);
+    const charTag = chars.length > 0
+      ? `<span class="voice-char">${chars.join(', ')}</span>`
       : `<span class="voice-nochar">no character linked</span>`;
     return `<div class="voice-row"><span class="voice-discord">${vm.displayName}</span>${charTag}</div>`;
   }).join('');
@@ -703,11 +706,11 @@ window.linkPlayer = async function(characterName) {
   }
 
   // Build list of voice members who don't already have a linked character
-  const unlinkedVoice = voiceMembers.filter(vm => !vm.character);
   const allVoice = voiceMembers;
 
   const options = allVoice.map(vm => {
-    const label = vm.character ? `${vm.displayName} (linked to ${vm.character})` : vm.displayName;
+    const chars = vm.characters || (vm.character ? [vm.character] : []);
+    const label = chars.length > 0 ? `${vm.displayName} (${chars.join(', ')})` : vm.displayName;
     return `<option value="${vm.discordId}" data-tag="${vm.displayName}">${label}</option>`;
   }).join('');
 
