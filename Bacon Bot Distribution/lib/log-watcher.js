@@ -306,6 +306,8 @@ class LogWatcher extends EventEmitter {
       if (voiceConfirmedNames.has(name)) {
         data.lastSeen = now;
         data.validated = true;
+      } else {
+        data.validated = false;
       }
     }
   }
