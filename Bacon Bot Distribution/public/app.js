@@ -544,13 +544,13 @@ function startLive() {
     }
 
     await fetchVoiceMembers();
-    await renderSplitAttendance(d.allPlayers);
+    await renderSplitAttendance(d.allPlayers, d.timestamp);
     refreshVoicePanel();
   });
 
   liveSource.addEventListener('attendance-update', async e => {
     const d = JSON.parse(e.data);
-    await renderSplitAttendance(d.allPlayers);
+    await renderSplitAttendance(d.allPlayers, d.timestamp);
   });
 
   liveSource.addEventListener('loot', e => {
@@ -634,7 +634,7 @@ async function stopLive() {
   cleanupLive();
 }
 
-async function renderSplitAttendance(players) {
+async function renderSplitAttendance(players, whoTimestamp) {
   // Build voice lookup
   const voiceNames = new Set();
   const discordMap = new Map();
@@ -658,7 +658,14 @@ async function renderSplitAttendance(players) {
     if (discordName) {
       linked.push({ ...p, discordName, inVoice, validated: !!p.validated });
     } else {
-      unlinked.push(p);
+      // Only show unlinked players seen in a recent /who (within 5 min of latest)
+      if (whoTimestamp) {
+        const whoTime = new Date(whoTimestamp).getTime();
+        const playerTime = new Date(p.lastSeen).getTime();
+        if (whoTime - playerTime <= 5 * 60 * 1000) unlinked.push(p);
+      } else {
+        unlinked.push(p);
+      }
     }
   }
 
