@@ -362,6 +362,43 @@ class LogWatcher extends EventEmitter {
     this.emit('zone', { zone: zoneName, timestamp: new Date().toISOString() });
   }
 
+  restoreSession(state) {
+    if (!state) return;
+
+    // Restore attendance map
+    if (state.attendanceMap) {
+      for (const [key, data] of state.attendanceMap) {
+        this.attendanceMap.set(key, {
+          ...data,
+          firstSeen: data.firstSeen ? new Date(data.firstSeen) : null,
+          lastSeen: data.lastSeen ? new Date(data.lastSeen) : null,
+          exitTime: data.exitTime ? new Date(data.exitTime) : null,
+        });
+      }
+    }
+
+    // Restore loot events
+    if (state.lootEvents) {
+      for (const l of state.lootEvents) {
+        this.lootEvents.push({
+          ...l,
+          timestamp: l.timestamp ? new Date(l.timestamp) : null,
+        });
+      }
+    }
+
+    // Restore zones
+    if (state.zones) {
+      for (const z of state.zones) this.zones.add(z);
+    }
+
+    // Restore current zone
+    if (state.currentZone) this.currentZone = state.currentZone;
+
+    // Restore raid end time
+    if (state.raidEndTime) this.raidEndTime = new Date(state.raidEndTime);
+  }
+
   stop() {
     if (this.watcher) {
       this.watcher.close();

@@ -504,10 +504,21 @@ function startLive() {
     sel.appendChild(opt);
   }
 
-  liveSource.addEventListener('started', () => {
+  liveSource.addEventListener('started', async () => {
     $('live-status-text').textContent = 'Watching for changes...';
     refreshVoicePanel();
     voiceInterval = setInterval(refreshVoicePanel, 30000);
+
+    // Check if session was restored
+    try {
+      const statusRes = await fetch('/api/session-status');
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        if (status.available && status.playerCount > 0) {
+          $('live-status-text').textContent = `Restored session (${status.playerCount} players, ${status.lootCount} loot)`;
+        }
+      }
+    } catch {}
   });
 
   liveSource.addEventListener('zone', e => {

@@ -167,6 +167,37 @@ let liveClients  = [];
 let liveDevMode  = false;
 let autoSaveTimer = null;
 const AUTO_SAVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const SESSION_FILE = path.join(__dirname, 'live-session.json');
+
+function saveSessionToFile() {
+  if (!liveWatcher) return;
+  try {
+    const session = liveWatcher.getSessionData();
+    const state = {
+      timestamp: new Date().toISOString(),
+      currentZone: liveWatcher.currentZone,
+      raidEndTime: liveWatcher.raidEndTime ? liveWatcher.raidEndTime.toISOString() : null,
+      attendanceMap: Array.from(liveWatcher.attendanceMap.entries()).map(([key, data]) => [key, {
+        ...data,
+        firstSeen: data.firstSeen ? data.firstSeen.toISOString() : null,
+        lastSeen: data.lastSeen ? data.lastSeen.toISOString() : null,
+        exitTime: data.exitTime ? data.exitTime.toISOString() : null,
+      }]),
+      lootEvents: liveWatcher.lootEvents.map(l => ({
+        ...l,
+        timestamp: l.timestamp instanceof Date ? l.timestamp.toISOString() : l.timestamp,
+      })),
+      zones: [...liveWatcher.zones],
+    };
+    fs.writeFileSync(SESSION_FILE, JSON.stringify(state, null, 2));
+  } catch (err) {
+    console.error('[session] Failed to save:', err.message);
+  }
+}
+
+function clearSessionFile() {
+  try { fs.unlinkSync(SESSION_FILE); } catch {}
+}
 
 async function autoSaveLiveSession() {
   if (!liveWatcher || !apiKey) return;
@@ -240,6 +271,7 @@ async function autoSaveLiveSession() {
       timestamp: new Date().toISOString(),
     }));
   }
+  saveSessionToFile();
 }
 
 function startAutoSave() {
@@ -548,6 +580,7 @@ async function handleRequest(req, res) {
           }));
           const updated = { ...data, allPlayers: allPlayersWithTime };
           liveClients.forEach(c => sseSend(c, 'attendance', updated));
+          saveSessionToFile();
         });
         liveWatcher.on('loot', data => {
           liveClients.forEach(c => sseSend(c, 'loot', data));
@@ -573,6 +606,23 @@ async function handleRequest(req, res) {
           liveClients.forEach(c => sseSend(c, 'starred-loot', data));
         });
 
+        // Restore previous session if available
+        try {
+          if (fs.existsSync(SESSION_FILE)) {
+            const saved = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+            const age = Date.now() - new Date(saved.timestamp).getTime();
+            if (age < 6 * 60 * 60 * 1000) { // Less than 6 hours old
+              liveWatcher.restoreSession(saved);
+              console.log(`[session] Restored session from ${saved.timestamp}`);
+            } else {
+              console.log('[session] Saved session too old, starting fresh');
+              clearSessionFile();
+            }
+          }
+        } catch (err) {
+          console.error('[session] Failed to restore:', err.message);
+        }
+
         liveWatcher.start();
         if (!liveDevMode) startAutoSave();
       }
@@ -580,10 +630,82 @@ async function handleRequest(req, res) {
       liveClients.push(res);
       sseSend(res, 'started', { file });
 
+      // Replay current state to the connecting client
+      if (liveWatcher.attendanceMap.size > 0 || liveWatcher.lootEvents.length > 0) {
+        // Build deduped attendance for UI
+        const playerMap = new Map();
+        for (const [key, d] of liveWatcher.attendanceMap) {
+          const lowerName = d.name.toLowerCase();
+          const existing = playerMap.get(lowerName);
+          if (!existing) {
+            playerMap.set(lowerName, {
+              name: d.name, zones: d.zone ? [d.zone] : [],
+              lastSeen: d.lastSeen, exitTime: d.exitTime || null, validated: !!d.validated,
+            });
+          } else {
+            if (d.zone && !existing.zones.includes(d.zone)) existing.zones.push(d.zone);
+            if (d.lastSeen > existing.lastSeen) existing.lastSeen = d.lastSeen;
+            if (d.validated) existing.validated = true;
+          }
+        }
+        const allPlayers = Array.from(playerMap.values()).map(p => ({
+          name: p.name, zones: p.zones,
+          lastSeen: p.lastSeen.toISOString(),
+          exitTime: p.exitTime ? p.exitTime.toISOString() : null,
+          validated: p.validated,
+        }));
+
+        sseSend(res, 'attendance', {
+          zone: liveWatcher.currentZone || '',
+          total: playerMap.size,
+          newPlayers: [],
+          allPlayers,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Replay loot events
+        for (const l of liveWatcher.lootEvents) {
+          sseSend(res, 'loot', {
+            ...l,
+            timestamp: l.timestamp instanceof Date ? l.timestamp.toISOString() : l.timestamp,
+          });
+        }
+
+        // Replay zone
+        if (liveWatcher.currentZone) {
+          sseSend(res, 'zone', { zone: liveWatcher.currentZone, timestamp: new Date().toISOString() });
+        }
+
+        // Replay raid end
+        if (liveWatcher.raidEndTime) {
+          sseSend(res, 'raid-ended', { endTime: liveWatcher.raidEndTime.toISOString() });
+        }
+      }
+
       req.on('close', () => {
         liveClients = liveClients.filter(c => c !== res);
       });
       return;
+    }
+
+    // ── GET /api/session-status ───────────────────────────────────
+    if (req.method === 'GET' && route === '/api/session-status') {
+      try {
+        if (fs.existsSync(SESSION_FILE)) {
+          const saved = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+          const age = Date.now() - new Date(saved.timestamp).getTime();
+          if (age < 6 * 60 * 60 * 1000) {
+            return json(200, {
+              available: true,
+              timestamp: saved.timestamp,
+              playerCount: saved.attendanceMap ? saved.attendanceMap.length : 0,
+              lootCount: saved.lootEvents ? saved.lootEvents.length : 0,
+              zones: saved.zones || [],
+            });
+          }
+        }
+      } catch {}
+      return json(200, { available: false });
     }
 
     // ── POST /api/live/attendance ────────────────────────────────
@@ -701,6 +823,7 @@ async function handleRequest(req, res) {
         liveWatcher.stop();
         liveWatcher = null;
         liveDevMode = false;
+        clearSessionFile();
         liveClients.forEach(c => {
           sseSend(c, 'stopped', {});
           c.end();
