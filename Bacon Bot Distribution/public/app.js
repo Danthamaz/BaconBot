@@ -528,6 +528,21 @@ function startLive() {
 
   liveSource.addEventListener('attendance', async e => {
     const d = JSON.parse(e.data);
+
+    // Check if /who zone differs from current zone
+    if (d.zone && $('live-zone').textContent !== '--' && d.zone !== $('live-zone').textContent) {
+      if (confirm(`/who detected in "${d.zone}" but current zone is "${$('live-zone').textContent}".\n\nHas the raid moved to ${d.zone}?`)) {
+        $('live-zone').textContent = d.zone;
+        try {
+          await fetch('/api/live/zone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zone: d.zone }),
+          });
+        } catch {}
+      }
+    }
+
     await fetchVoiceMembers();
     await renderSplitAttendance(d.allPlayers);
     refreshVoicePanel();
@@ -1174,15 +1189,21 @@ const CLASS_CATEGORIES = {
   'Bard': 'bard',
 };
 
+// Special players treated as specific roles regardless of class
+const PLAYER_OVERRIDES = {
+  'Gleipnir': 'tank',
+};
+
 function assignRaidGroups(roster) {
   const MAX_SIZE = 6;
   const groups = [];
   let groupNum = 1;
 
-  // Bucket players by category
+  // Bucket players by category (with player-specific overrides)
   const buckets = { tank: [], melee: [], caster: [], healer: [], bard: [], unknown: [] };
   for (const p of roster) {
-    const cat = CLASS_CATEGORIES[p.class] || 'unknown';
+    const override = PLAYER_OVERRIDES[p.name];
+    const cat = override || CLASS_CATEGORIES[p.class] || 'unknown';
     buckets[cat].push(p);
   }
 
@@ -1200,18 +1221,14 @@ function assignRaidGroups(roster) {
   }
   buckets.tank = buckets.tank.filter(p => !tankGroup.members.includes(p));
 
-  // Add 1 bard if available
-  if (buckets.bard.length > 0 && tankGroup.members.length < MAX_SIZE) {
-    tankGroup.members.push(buckets.bard.shift());
-  }
-
-  // Add 1 shaman if available
+  // Torpor rule: if tanks are Paladin/SK (no Warrior), add a Shaman for Torpor
+  const hasWarrior = tankGroup.members.some(p => p.class === 'Warrior');
   const shamanIdx = buckets.healer.findIndex(p => p.class === 'Shaman');
-  if (shamanIdx !== -1 && tankGroup.members.length < MAX_SIZE) {
+  if (!hasWarrior && shamanIdx !== -1 && tankGroup.members.length < MAX_SIZE) {
     tankGroup.members.push(buckets.healer.splice(shamanIdx, 1)[0]);
   }
 
-  // Fill remaining with healers
+  // Fill remaining tank group with healers
   while (tankGroup.members.length < MAX_SIZE && buckets.healer.length > 0) {
     tankGroup.members.push(buckets.healer.shift());
   }
@@ -1224,9 +1241,18 @@ function assignRaidGroups(roster) {
   // ── Build caster groups by class stacking ──
   const casterGroups = buildClassGroups(buckets.caster, 'Caster', MAX_SIZE);
 
-  // ── Distribute bards: melee groups first, then caster groups ──
-  const allDpsGroups = [...meleeGroups, ...casterGroups];
-  for (const g of allDpsGroups) {
+  // ── Distribute bards: melee first, then tank, then casters ──
+  for (const g of meleeGroups) {
+    if (buckets.bard.length === 0) break;
+    if (g.members.length < MAX_SIZE) {
+      g.members.push(buckets.bard.shift());
+    }
+  }
+  // Bard in tank group (if not already there and bards remain)
+  if (buckets.bard.length > 0 && tankGroup.members.length < MAX_SIZE && !tankGroup.members.some(m => CLASS_CATEGORIES[m.class] === 'bard')) {
+    tankGroup.members.push(buckets.bard.shift());
+  }
+  for (const g of casterGroups) {
     if (buckets.bard.length === 0) break;
     if (g.members.length < MAX_SIZE) {
       g.members.push(buckets.bard.shift());
