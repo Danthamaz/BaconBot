@@ -825,6 +825,8 @@ window.linkPlayer = async function(characterName) {
 };
 
 window.attendAction = async function(name, action) {
+  if (action === 'remove' && !confirm(`Remove ${name} from attendance?`)) return;
+  if (action === 'exit' && !confirm(`Mark ${name} as exited?`)) return;
   try {
     const res = await fetch('/api/live/attendance', {
       method: 'POST',
