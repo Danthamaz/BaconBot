@@ -286,6 +286,9 @@ function stopAutoSave() {
 // ── Route handler ───────────────────────────────────────────────────────────
 
 async function handleRequest(req, res) {
+  // Any request from the browser resets the shutdown timer
+  lastHeartbeat = Date.now();
+
   const url = new URL(req.url, `http://${req.headers.host}`);
   const route = url.pathname;
 
@@ -934,9 +937,10 @@ async function handleRequest(req, res) {
 // ── Auto-shutdown when browser disconnects ──────────────────────────────────
 
 let lastHeartbeat = Date.now();
+const SHUTDOWN_TIMEOUT = 60000; // 60 seconds with no heartbeat
 
 setInterval(() => {
-  if (Date.now() - lastHeartbeat > 30000) {
+  if (Date.now() - lastHeartbeat > SHUTDOWN_TIMEOUT) {
     console.log('\n  No browser connected for 30s — shutting down.\n');
     if (liveWatcher) {
       saveSessionToFile();
