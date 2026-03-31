@@ -13,7 +13,7 @@ const SELF_LOOT_RE   = /^--You have looted an? (.+?)\s*\.--$/;
 const OTHER_LOOT_RE  = /^--([\w`'-]+) has looted an? (.+?)\s*\.--$/;
 
 function normalizeZone(name) {
-  return name.toLowerCase().replace(/^the\s+/, '').trim();
+  return name.toLowerCase().replace(/^the\s+/, '').replace(/[-'\s]/g, '').trim();
 }
 
 function zoneMatchesFilters(zoneName, filters) {
