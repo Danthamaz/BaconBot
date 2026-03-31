@@ -688,6 +688,12 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // ── GET /api/heartbeat ──────────────────────────────────────────
+    if (req.method === 'GET' && route === '/api/heartbeat') {
+      lastHeartbeat = Date.now();
+      return json(200, { ok: true });
+    }
+
     // ── GET /api/session-status ───────────────────────────────────
     if (req.method === 'GET' && route === '/api/session-status') {
       try {
@@ -924,6 +930,21 @@ async function handleRequest(req, res) {
     json(500, { error: err.message });
   }
 }
+
+// ── Auto-shutdown when browser disconnects ──────────────────────────────────
+
+let lastHeartbeat = Date.now();
+
+setInterval(() => {
+  if (Date.now() - lastHeartbeat > 30000) {
+    console.log('\n  No browser connected for 30s — shutting down.\n');
+    if (liveWatcher) {
+      saveSessionToFile();
+      liveWatcher.stop();
+    }
+    process.exit(0);
+  }
+}, 10000);
 
 // ── Start server ────────────────────────────────────────────────────────────
 

@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupLive();
   setupRaidGroups();
   setupItemFilters();
+
+  // Heartbeat — keeps server alive while tab is open
+  setInterval(() => { fetch('/api/heartbeat').catch(() => {}); }, 10000);
   await loadConfig();
 });
 
