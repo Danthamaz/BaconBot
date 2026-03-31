@@ -631,6 +631,11 @@ async function handleRequest(req, res) {
       sseSend(res, 'started', { file });
 
       // Replay current state to the connecting client
+      // Zone first so attendance event doesn't trigger a zone-change prompt
+      if (liveWatcher.currentZone) {
+        sseSend(res, 'zone', { zone: liveWatcher.currentZone, timestamp: new Date().toISOString() });
+      }
+
       if (liveWatcher.attendanceMap.size > 0 || liveWatcher.lootEvents.length > 0) {
         // Build deduped attendance for UI
         const playerMap = new Map();
@@ -669,11 +674,6 @@ async function handleRequest(req, res) {
             ...l,
             timestamp: l.timestamp instanceof Date ? l.timestamp.toISOString() : l.timestamp,
           });
-        }
-
-        // Replay zone
-        if (liveWatcher.currentZone) {
-          sseSend(res, 'zone', { zone: liveWatcher.currentZone, timestamp: new Date().toISOString() });
         }
 
         // Replay raid end
