@@ -7,6 +7,7 @@ const https    = require('https');
 const fs       = require('fs');
 const path     = require('path');
 const { autoParseLog, APPROVED_ZONES } = require('./lib/parser');
+const quarmDb = require('./lib/quarm-db');
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ const DEFAULT_CONFIG = {
   raidEndUTC:   17,
   approvedZones: [...APPROVED_ZONES],
   ignoredItems:  [],
+  eqDbPath: '',
+  starredItems: [],
 };
 
 function loadConfig() {
@@ -278,7 +281,22 @@ async function handleRequest(req, res) {
       if (body.raidEndUTC !== undefined)    cfg.raidEndUTC    = body.raidEndUTC;
       if (body.approvedZones !== undefined) cfg.approvedZones = body.approvedZones;
       if (body.ignoredItems !== undefined)  cfg.ignoredItems  = body.ignoredItems;
+      if (body.eqDbPath !== undefined)      cfg.eqDbPath      = body.eqDbPath;
+      if (body.starredItems !== undefined)  cfg.starredItems  = body.starredItems;
       saveConfig(cfg);
+      // Rebuild item cache if zones changed
+      if (body.approvedZones !== undefined && cfg.eqDbPath) {
+        try {
+          const dumpFile = quarmDb.findDumpFile(cfg.eqDbPath);
+          if (dumpFile) {
+            quarmDb.initCache();
+            const shortNames = (cfg.approvedZones || []).map(z => quarmDb.getZoneShortName(z)).filter(Boolean);
+            if (shortNames.length > 0) quarmDb.importItemsForZones(dumpFile, shortNames);
+          }
+        } catch (err) {
+          console.error('[quarm-db] Rebuild failed:', err.message);
+        }
+      }
       return json(200, { ok: true });
     }
 
@@ -680,6 +698,61 @@ async function handleRequest(req, res) {
       return json(200, liveWatcher.getSessionData());
     }
 
+    // ── GET /api/zones ────────────────────────────────────────────
+    if (req.method === 'GET' && route === '/api/zones') {
+      try {
+        quarmDb.initCache();
+        return json(200, quarmDb.getAllZones());
+      } catch (err) {
+        return json(500, { error: err.message });
+      }
+    }
+
+    // ── GET /api/items?q=search ───────────────────────────────────
+    if (req.method === 'GET' && route === '/api/items') {
+      const q = url.searchParams.get('q') || '';
+      if (q.length < 2) return json(200, []);
+      try {
+        return json(200, quarmDb.searchItems(q));
+      } catch (err) {
+        return json(500, { error: err.message });
+      }
+    }
+
+    // ── POST /api/star-item ───────────────────────────────────────
+    if (req.method === 'POST' && route === '/api/star-item') {
+      const body = JSON.parse(await readBody(req));
+      const { itemName, starred } = body;
+      if (!itemName) return json(400, { error: 'itemName required' });
+      const cfg = loadConfig();
+      if (!cfg.starredItems) cfg.starredItems = [];
+      const lower = itemName.toLowerCase();
+      if (starred) {
+        if (!cfg.starredItems.some(i => i.toLowerCase() === lower)) cfg.starredItems.push(itemName);
+      } else {
+        cfg.starredItems = cfg.starredItems.filter(i => i.toLowerCase() !== lower);
+      }
+      saveConfig(cfg);
+      if (liveWatcher && liveWatcher.setStarredItems) liveWatcher.setStarredItems(cfg.starredItems);
+      return json(200, { starredItems: cfg.starredItems });
+    }
+
+    // ── POST /api/rebuild-items ───────────────────────────────────
+    if (req.method === 'POST' && route === '/api/rebuild-items') {
+      const cfg = loadConfig();
+      if (!cfg.eqDbPath) return json(400, { error: 'eqDbPath not configured' });
+      try {
+        const dumpFile = quarmDb.findDumpFile(cfg.eqDbPath);
+        if (!dumpFile) return json(404, { error: 'No SQL dump found' });
+        quarmDb.initCache();
+        const shortNames = (cfg.approvedZones || []).map(z => quarmDb.getZoneShortName(z)).filter(Boolean);
+        const count = quarmDb.importItemsForZones(dumpFile, shortNames);
+        return json(200, { count });
+      } catch (err) {
+        return json(500, { error: err.message });
+      }
+    }
+
     // ── Static files ────────────────────────────────────────────
     if (req.method === 'GET' && !route.startsWith('/api/')) {
       return serveStatic(req, res);
@@ -698,6 +771,25 @@ const server = http.createServer(handleRequest);
 
 server.listen(PORT, () => {
   console.log(`\n  BaconBot Web App running at http://localhost:${PORT}\n`);
+  // Import quarm data on startup
+  const cfg = loadConfig();
+  if (cfg.eqDbPath) {
+    try {
+      quarmDb.initCache();
+      const dumpFile = quarmDb.findDumpFile(cfg.eqDbPath);
+      if (dumpFile) {
+        console.log(`[quarm-db] Importing from ${dumpFile}...`);
+        quarmDb.importZones(dumpFile);
+        if (cfg.approvedZones && cfg.approvedZones.length > 0) {
+          const shortNames = cfg.approvedZones.map(z => quarmDb.getZoneShortName(z)).filter(Boolean);
+          if (shortNames.length > 0) quarmDb.importItemsForZones(dumpFile, shortNames);
+        }
+        console.log('[quarm-db] Import complete');
+      }
+    } catch (err) {
+      console.error('[quarm-db] Import failed:', err.message);
+    }
+  }
 }).on('error', err => {
   if (err.code === 'EADDRINUSE') {
     console.log(`  Port ${PORT} in use, trying ${PORT + 1}...`);
