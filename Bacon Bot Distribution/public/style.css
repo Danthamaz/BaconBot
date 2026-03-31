@@ -636,6 +636,17 @@ textarea:focus { outline: none; border-color: var(--accent); }
 }
 .btn-link-confirm:hover { filter: brightness(1.15); }
 
+.btn-link-cancel {
+  padding: 2px 6px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.btn-link-cancel:hover { color: var(--red); border-color: var(--red); }
+
 .voice-row {
   display: flex;
   align-items: center;

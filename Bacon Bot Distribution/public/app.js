@@ -737,34 +737,45 @@ async function refreshVoicePanel() {
 
 
 window.linkPlayer = async function(characterName) {
+  // Refresh voice members to get latest list
+  await fetchVoiceMembers();
+
   if (!voiceMembers || voiceMembers.length === 0) {
     alert('No voice members available. Make sure the bot can see the voice channel.');
     return;
   }
 
-  // Build list of voice members who don't already have a linked character
-  const allVoice = voiceMembers;
-
-  const options = allVoice.map(vm => {
+  const options = voiceMembers.map(vm => {
     const chars = vm.characters || (vm.character ? [vm.character] : []);
     const label = chars.length > 0 ? `${vm.displayName} (${chars.join(', ')})` : vm.displayName;
     return `<option value="${vm.discordId}" data-tag="${vm.displayName}">${label}</option>`;
   }).join('');
 
-  // Replace the Link button with a dropdown
+  // Replace the Link button (or existing wrapper) with a dropdown
   const rows = $('live-unlinked').querySelectorAll('.attend-row');
   for (const row of rows) {
     const nameEl = row.querySelector('.attend-name');
     if (nameEl && nameEl.textContent === characterName) {
-      const linkEl = row.querySelector('.attend-link');
-      if (!linkEl) return;
+      const existing = row.querySelector('.link-inline') || row.querySelector('.attend-link');
+      if (!existing) return;
       const wrapper = document.createElement('span');
       wrapper.className = 'link-inline';
-      wrapper.innerHTML = `<select class="link-select"><option value="">-- Select --</option>${options}</select><button class="btn-sm btn-link-confirm">OK</button>`;
-      linkEl.replaceWith(wrapper);
+      wrapper.innerHTML = `<select class="link-select"><option value="">-- Select --</option>${options}</select><button class="btn-sm btn-link-confirm">OK</button><button class="btn-sm btn-link-cancel">X</button>`;
+      existing.replaceWith(wrapper);
 
       const sel = wrapper.querySelector('select');
-      const btn = wrapper.querySelector('button');
+      const btn = wrapper.querySelector('.btn-link-confirm');
+      const cancelBtn = wrapper.querySelector('.btn-link-cancel');
+
+      cancelBtn.addEventListener('click', () => {
+        const link = document.createElement('span');
+        link.className = 'attend-link';
+        link.title = 'Link to Discord user';
+        link.onclick = () => linkPlayer(characterName);
+        link.textContent = 'Link';
+        wrapper.replaceWith(link);
+      });
+
       btn.addEventListener('click', async () => {
         const discordId = sel.value;
         const discordTag = sel.selectedOptions[0]?.dataset.tag;
