@@ -530,6 +530,7 @@ function startLive() {
 
   liveSource.addEventListener('attendance', async e => {
     const d = JSON.parse(e.data);
+    console.log('[SSE attendance]', d.allPlayers?.length, 'players, zone:', d.zone);
 
     // Check if /who zone differs from current zone or no zone is set
     const currentZone = $('live-zone').textContent;
@@ -562,6 +563,7 @@ function startLive() {
 
   liveSource.addEventListener('loot', e => {
     const d = JSON.parse(e.data);
+    console.log('[SSE loot]', d.itemName, d.playerName);
     // Skip items on the client-side ignore list
     if ((config.ignoredItems || []).some(i => i.toLowerCase() === d.itemName.toLowerCase())) return;
     const count = parseInt($('live-loot-count').textContent, 10) + 1;
