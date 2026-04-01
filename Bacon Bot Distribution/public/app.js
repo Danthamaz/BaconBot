@@ -10,6 +10,23 @@ let liveRunning  = false;
 let voiceInterval = null;
 let allZones     = [];
 let searchTimeout = null;
+let prevUnlinkedNames = new Set();
+
+function playAlertSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.value = 0.3;
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch {}
+}
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -681,6 +698,12 @@ async function renderSplitAttendance(players, whoTimestamp) {
       unlinked.push(p);
     }
   }
+
+  // Check for new unlinked players and play alert
+  const currentUnlinkedNames = new Set(unlinked.map(p => p.name.toLowerCase()));
+  const hasNew = [...currentUnlinkedNames].some(n => !prevUnlinkedNames.has(n));
+  if (hasNew && prevUnlinkedNames.size > 0) playAlertSound();
+  prevUnlinkedNames = currentUnlinkedNames;
 
   console.log('[render] linked:', linked.length, 'unlinked:', unlinked.length);
   $('live-attend-count').textContent = linked.length;
