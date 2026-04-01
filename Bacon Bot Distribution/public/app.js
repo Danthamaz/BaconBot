@@ -12,6 +12,34 @@ let allZones     = [];
 let searchTimeout = null;
 let prevUnlinkedNames = new Set();
 
+// ── XSS escaping helpers ────────────────────────────────────────────────────
+function esc(str) {
+  if (!str) return '';
+  const el = document.createElement('span');
+  el.textContent = String(str);
+  return el.innerHTML;
+}
+
+function escAttr(str) {
+  return esc(str).replace(/'/g, '&#39;').replace(/\\/g, '&#92;');
+}
+
+// ── Non-blocking notification bar ───────────────────────────────────────────
+function showNotification(msg, actions) {
+  const bar = document.createElement('div');
+  bar.className = 'notification-bar';
+  bar.innerHTML = `<span>${esc(msg)}</span>`;
+  for (const [label, callback] of actions) {
+    const btn = document.createElement('button');
+    btn.className = 'notification-btn';
+    btn.textContent = label;
+    btn.addEventListener('click', () => { bar.remove(); callback(); });
+    bar.appendChild(btn);
+  }
+  document.body.prepend(bar);
+  return bar;
+}
+
 function playAlertSound() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -336,8 +364,8 @@ function renderSessions(sessions) {
       <div class="session-header" onclick="toggleSession(${i})">
         <input type="checkbox" checked onclick="event.stopPropagation()" data-session="${i}">
         <div class="session-info">
-          <div class="session-date">${s.date} ${s.dayName}</div>
-          <div class="session-meta">${s.zones.join(', ') || 'unknown'} | UTC ${startUTC} - ${endUTC}</div>
+          <div class="session-date">${esc(s.date)} ${esc(s.dayName)}</div>
+          <div class="session-meta">${s.zones.map(z => esc(z)).join(', ') || 'unknown'} | UTC ${startUTC} - ${endUTC}</div>
         </div>
         <div class="session-stats">
           <span><span class="session-stat-val">${s.attendance.length}</span> in log</span>
@@ -356,7 +384,7 @@ function renderSessions(sessions) {
             ${s.attendance.map(a => {
               const voiceIcon = hasVoice ? `<td class="voice-col">${a._inVoice ? '<span class="dot green"></span>' : '<span class="dot red"></span>'}</td>` : '';
               const rowClass = hasVoice && !a._inVoice ? 'class="row-excluded"' : '';
-              return `<tr ${rowClass}>${voiceIcon}<td>${a.name}</td><td>${a.level || '-'}</td><td>${a.class || '-'}</td><td>${a.guild || '-'}</td></tr>`;
+              return `<tr ${rowClass}>${voiceIcon}<td>${esc(a.name)}</td><td>${a.level || '-'}</td><td>${esc(a.class) || '-'}</td><td>${esc(a.guild) || '-'}</td></tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -365,7 +393,7 @@ function renderSessions(sessions) {
           <table class="data-table">
             <thead><tr><th>Player</th><th>Item</th><th>Zone</th></tr></thead>
             <tbody>
-              ${s.loot.map(l => `<tr><td>${l.playerName || '?'}</td><td>${l.itemName}</td><td>${l.zone || '-'}</td></tr>`).join('')}
+              ${s.loot.map(l => `<tr><td>${esc(l.playerName) || '?'}</td><td>${esc(l.itemName)}</td><td>${esc(l.zone) || '-'}</td></tr>`).join('')}
             </tbody>
           </table>
         ` : ''}
@@ -558,17 +586,20 @@ function startLive() {
     if (d.zone && d.zone !== currentZone) {
       const msg = currentZone === '--'
         ? `/who detected in "${d.zone}". Set this as the current zone?`
-        : `/who detected in "${d.zone}" but current zone is "${currentZone}".\n\nHas the raid moved to ${d.zone}?`;
-      if (confirm(msg)) {
-        $('live-zone').textContent = d.zone;
-        try {
-          await fetch('/api/live/zone', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ zone: d.zone }),
-          });
-        } catch {}
-      }
+        : `/who detected in "${d.zone}" but current zone is "${currentZone}". Has the raid moved to ${d.zone}?`;
+      showNotification(msg, [
+        ['Yes', async () => {
+          $('live-zone').textContent = d.zone;
+          try {
+            await fetch('/api/live/zone', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ zone: d.zone }),
+            });
+          } catch {}
+        }],
+        ['No', () => {}],
+      ]);
     }
 
     try {
@@ -728,15 +759,15 @@ async function renderSplitAttendance(players, whoTimestamp) {
       icon = '<span class="status-icon status-missing" title="Not in zone or voice">&#10007;</span> ';
     }
     const exitBtn = exited
-      ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${p.name}','clear-exit')">\u21a9</span>`
-      : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${p.name}','exit')">\u23f9</span>`;
-    const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${p.name}','remove')">\u2715</span>`;
-    const discordTag = `<span class="attend-discord">${p.discordName}</span>`;
+      ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${escAttr(p.name)}','clear-exit')">\u21a9</span>`
+      : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${escAttr(p.name)}','exit')">\u23f9</span>`;
+    const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${escAttr(p.name)}','remove')">\u2715</span>`;
+    const discordTag = `<span class="attend-discord">${esc(p.discordName)}</span>`;
     const zoneTag = p.zones && p.zones.length > 0
-      ? `<span class="attend-zones">${p.zones.join(', ')}</span>`
+      ? `<span class="attend-zones">${p.zones.map(z => esc(z)).join(', ')}</span>`
       : '';
     const staleClass = !p.validated && !exited ? ' attend-stale' : '';
-    return `<div class="attend-row${exitClass}${staleClass}">${icon}<span class="attend-name">${p.name}</span>${discordTag}${zoneTag}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
+    return `<div class="attend-row${exitClass}${staleClass}">${icon}<span class="attend-name">${esc(p.name)}</span>${discordTag}${zoneTag}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
   }).join('');
 
   // Render unlinked players
@@ -748,11 +779,11 @@ async function renderSplitAttendance(players, whoTimestamp) {
     const exitClass = exited ? ' attend-exited' : '';
     const exitLabel = exited ? 'exited ' : '';
     const exitBtn = exited
-      ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${p.name}','clear-exit')">\u21a9</span>`
-      : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${p.name}','exit')">\u23f9</span>`;
-    const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${p.name}','remove')">\u2715</span>`;
-    const linkBtn = `<span class="attend-link" title="Link to Discord user" onclick="linkPlayer('${p.name}')">Link</span>`;
-    return `<div class="attend-row${exitClass}"><span class="attend-name">${p.name}</span>${linkBtn}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
+      ? `<span class="attend-undo" title="Undo exit" onclick="attendAction('${escAttr(p.name)}','clear-exit')">\u21a9</span>`
+      : `<span class="attend-exit" title="Mark as exited" onclick="attendAction('${escAttr(p.name)}','exit')">\u23f9</span>`;
+    const removeBtn = `<span class="attend-remove" title="Remove player" onclick="attendAction('${escAttr(p.name)}','remove')">\u2715</span>`;
+    const linkBtn = `<span class="attend-link" title="Link to Discord user" onclick="linkPlayer('${escAttr(p.name)}')">Link</span>`;
+    return `<div class="attend-row${exitClass}"><span class="attend-name">${esc(p.name)}</span>${linkBtn}<span class="attend-actions">${exitBtn}${removeBtn}</span><span class="attend-time">${exitLabel}${time}</span></div>`;
   }).join('');
 }
 
@@ -767,9 +798,9 @@ async function refreshVoicePanel() {
   $('live-voice').innerHTML = voiceMembers.map(vm => {
     const chars = vm.characters || (vm.character ? [vm.character] : []);
     const charTag = chars.length > 0
-      ? `<span class="voice-char">${chars.join(', ')}</span>`
+      ? `<span class="voice-char">${chars.map(c => esc(c)).join(', ')}</span>`
       : `<span class="voice-nochar">no character linked</span>`;
-    return `<div class="voice-row"><span class="voice-discord">${vm.displayName}</span>${charTag}</div>`;
+    return `<div class="voice-row"><span class="voice-discord">${esc(vm.displayName)}</span>${charTag}</div>`;
   }).join('');
 }
 
@@ -797,8 +828,8 @@ window.linkPlayer = async function(characterName) {
 
   const options = voiceMembers.map(vm => {
     const chars = vm.characters || (vm.character ? [vm.character] : []);
-    const label = chars.length > 0 ? `${vm.displayName} (${chars.join(', ')})` : vm.displayName;
-    return `<option value="${vm.discordId}" data-tag="${vm.displayName}">${label}</option>`;
+    const label = chars.length > 0 ? `${esc(vm.displayName)} (${chars.map(c => esc(c)).join(', ')})` : esc(vm.displayName);
+    return `<option value="${esc(vm.discordId)}" data-tag="${escAttr(vm.displayName)}">${label}</option>`;
   }).join('');
 
   // Replace the Link button (or existing wrapper) with a dropdown
@@ -867,8 +898,6 @@ window.linkPlayer = async function(characterName) {
 };
 
 window.attendAction = async function(name, action) {
-  if (action === 'remove' && !confirm(`Remove ${name} from attendance?`)) return;
-  if (action === 'exit' && !confirm(`Mark ${name} as exited?`)) return;
   try {
     const res = await fetch('/api/live/attendance', {
       method: 'POST',
@@ -885,18 +914,22 @@ window.attendAction = async function(name, action) {
 };
 
 async function endRaid() {
-  if (!confirm('Mark raid as ended? This sets the end timestamp.')) return;
-  try {
-    const res = await fetch('/api/live/end-raid', { method: 'POST' });
-    if (res.ok) {
-      const d = await res.json();
-      const time = new Date(d.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      $('btn-end-raid').textContent = `Ended at ${time}`;
-      $('btn-end-raid').disabled = true;
-    }
-  } catch {
-    alert('Failed to end raid');
-  }
+  showNotification('Mark raid as ended? This sets the end timestamp.', [
+    ['Yes', async () => {
+      try {
+        const res = await fetch('/api/live/end-raid', { method: 'POST' });
+        if (res.ok) {
+          const d = await res.json();
+          const time = new Date(d.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          $('btn-end-raid').textContent = `Ended at ${time}`;
+          $('btn-end-raid').disabled = true;
+        }
+      } catch {
+        alert('Failed to end raid');
+      }
+    }],
+    ['No', () => {}],
+  ]);
 }
 
 function cleanupLive() {
@@ -912,18 +945,18 @@ function cleanupLive() {
 }
 
 function renderLootEntry(index, looter, awardedTo, itemName, timestamp) {
-  const ignoreBtn = `<span class="loot-ignore" title="Ignore this item" onclick="ignoreLootItem('${itemName.replace(/'/g, "\\'")}')">X</span>`;
+  const ignoreBtn = `<span class="loot-ignore" title="Ignore this item" onclick="ignoreLootItem('${escAttr(itemName)}')">X</span>`;
   const timeStr = timestamp ? `<span class="loot-time">${new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` : '';
   if (awardedTo && awardedTo !== looter) {
-    return `<span class="loot-player loot-original">${looter}</span> ` +
+    return `<span class="loot-player loot-original">${esc(looter)}</span> ` +
       `<span class="loot-arrow">\u2192</span> ` +
-      `<span class="loot-awarded" title="Click to change" onclick="editLootPlayer(${index})">${awardedTo}</span> ` +
-      ` looted <span class="loot-name">${itemName}</span> ` +
+      `<span class="loot-awarded" title="Click to change" onclick="editLootPlayer(${index})">${esc(awardedTo)}</span> ` +
+      ` looted <span class="loot-name">${esc(itemName)}</span> ` +
       `<span class="loot-undo" title="Undo reassign" onclick="undoLootPlayer(${index})"> \u2715</span> ` +
       ignoreBtn + timeStr;
   }
-  return `<span class="loot-player" title="Click to reassign" onclick="editLootPlayer(${index})">${looter}</span>` +
-    ` looted <span class="loot-name">${itemName}</span> ` +
+  return `<span class="loot-player" title="Click to reassign" onclick="editLootPlayer(${index})">${esc(looter)}</span>` +
+    ` looted <span class="loot-name">${esc(itemName)}</span> ` +
     ignoreBtn + timeStr;
 }
 
@@ -1098,7 +1131,7 @@ async function loadZoneList() {
 function renderZoneTags() {
   const tags = (config.approvedZones || []).slice().sort((a, b) => a.localeCompare(b));
   $('zone-tags').innerHTML = tags.map(z =>
-    `<span class="zone-tag">${z}<span class="zone-tag-remove" onclick="removeZone('${z.replace(/'/g, "\\'")}')">&times;</span></span>`
+    `<span class="zone-tag">${esc(z)}<span class="zone-tag-remove" onclick="removeZone('${escAttr(z)}')">&times;</span></span>`
   ).join('');
 }
 
@@ -1128,7 +1161,7 @@ function setupZoneCombo() {
     ).slice(0, 20);
     if (matches.length === 0) { dropdown.classList.add('hidden'); return; }
     dropdown.innerHTML = matches.map(z =>
-      `<div class="zone-dropdown-item" onclick="addZone('${z.long_name.replace(/'/g, "\\'")}')">${z.long_name}</div>`
+      `<div class="zone-dropdown-item" onclick="addZone('${escAttr(z.long_name)}')">${esc(z.long_name)}</div>`
     ).join('');
     dropdown.classList.remove('hidden');
   });
@@ -1163,10 +1196,10 @@ async function doItemSearch() {
       const starClass = isStarred ? ' active' : '';
       const trashClass = isTrashed ? ' active' : '';
       return `<div class="item-row">
-        <span class="item-name">${item.item_name}</span>
+        <span class="item-name">${esc(item.item_name)}</span>
         <span class="item-actions">
-          <span class="item-star${starClass}" title="Mark valuable" onclick="toggleStarItem('${item.item_name.replace(/'/g, "\\'")}')">&#9733;</span>
-          <span class="item-trash${trashClass}" title="Ignore item" onclick="toggleTrashItem('${item.item_name.replace(/'/g, "\\'")}')">&#128465;</span>
+          <span class="item-star${starClass}" title="Mark valuable" onclick="toggleStarItem('${escAttr(item.item_name)}')">&#9733;</span>
+          <span class="item-trash${trashClass}" title="Ignore item" onclick="toggleTrashItem('${escAttr(item.item_name)}')">&#128465;</span>
         </span>
       </div>`;
     }).join('');
@@ -1253,7 +1286,7 @@ function renderRosterSummary() {
     classCounts[p.class] = (classCounts[p.class] || 0) + 1;
   }
   const sorted = Object.entries(classCounts).sort((a, b) => b[1] - a[1]);
-  const parts = sorted.map(([cls, count]) => `<strong>${count}</strong> ${cls}`);
+  const parts = sorted.map(([cls, count]) => `<strong>${count}</strong> ${esc(cls)}`);
   $('roster-summary').innerHTML = `<strong>${raidRoster.length}</strong> players: ${parts.join(', ')}`;
 }
 
@@ -1464,9 +1497,9 @@ function generateRaidGroups() {
   // Preview cards
   $('raid-groups-preview').innerHTML = raidGroupsResult.map(g => {
     const members = g.members.map(m =>
-      `<div class="group-member"><span>${m.name}</span><span class="member-class">${m.level} ${m.class}</span></div>`
+      `<div class="group-member"><span>${esc(m.name)}</span><span class="member-class">${m.level} ${esc(m.class)}</span></div>`
     ).join('');
-    return `<div class="group-card"><h4>Group ${g.number}: ${g.label} (${g.members.length})</h4>${members}</div>`;
+    return `<div class="group-card"><h4>Group ${g.number}: ${esc(g.label)} (${g.members.length})</h4>${members}</div>`;
   }).join('');
 
   // First move everyone to ungrouped (group 0) for a clean slate
