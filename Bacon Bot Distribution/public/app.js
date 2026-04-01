@@ -756,7 +756,19 @@ window.linkPlayer = async function(characterName) {
   await fetchVoiceMembers();
 
   if (!voiceMembers || voiceMembers.length === 0) {
-    alert('No voice members available. Make sure the bot can see the voice channel.');
+    const rows = $('live-unlinked').querySelectorAll('.attend-row');
+    for (const row of rows) {
+      const nameEl = row.querySelector('.attend-name');
+      if (nameEl && nameEl.textContent === characterName) {
+        const linkEl = row.querySelector('.attend-link');
+        if (linkEl) {
+          linkEl.textContent = 'Voice unavailable';
+          linkEl.style.color = 'var(--red)';
+          setTimeout(() => { linkEl.textContent = 'Link'; linkEl.style.color = ''; }, 3000);
+        }
+        break;
+      }
+    }
     return;
   }
 
