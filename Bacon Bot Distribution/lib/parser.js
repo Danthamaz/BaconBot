@@ -270,8 +270,12 @@ function localToUTC(year, month, day, hour, minute, second, timezone) {
   const parts = {};
   formatter.formatToParts(fakeUTC).forEach(p => { parts[p.type] = +p.value; });
 
-  const h = parts.hour === 24 ? 0 : parts.hour;
-  const localViewUTC = Date.UTC(parts.year, parts.month - 1, parts.day, h, parts.minute, parts.second);
+  let h = parts.hour;
+  let rollDay = 0;
+  if (h === 24) { h = 0; rollDay = 1; }
+  const utcBase = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, h, parts.minute, parts.second));
+  if (rollDay) utcBase.setUTCDate(utcBase.getUTCDate() + 1);
+  const localViewUTC = utcBase.getTime();
   const offset = fakeUTC.getTime() - localViewUTC;
   return new Date(fakeUTC.getTime() + offset);
 }

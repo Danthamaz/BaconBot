@@ -106,7 +106,12 @@ class LogWatcher extends EventEmitter {
   _readNew() {
     let stat;
     try { stat = fs.statSync(this.filePath); } catch { return; }
-    if (stat.size <= this.offset) return;
+    if (stat.size < this.offset) {
+      // File was truncated/rotated — reset to beginning
+      this.offset = 0;
+      this.pendingChunk = '';
+    }
+    if (stat.size === this.offset) return;
 
     const bytesToRead = stat.size - this.offset;
     const buf = Buffer.alloc(bytesToRead);
@@ -215,7 +220,7 @@ class LogWatcher extends EventEmitter {
 
         this.emit('attendance', {
           zone:       whoZone,
-          total:      this.attendanceMap.size,
+          total:      playerMap.size,
           newPlayers,
           allPlayers: allPlayersWithTime,
           whoPlayers: this.whoPlayers.map(p => p.name.toLowerCase()),
