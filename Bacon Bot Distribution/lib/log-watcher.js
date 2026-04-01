@@ -2,25 +2,10 @@
 
 const fs = require('fs');
 const { EventEmitter } = require('events');
-const { parseEQDateUTC } = require('./parser');
-
-// Duplicated from parser.js (not exported individually)
-const LINE_RE        = /^\[(\w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4})\] (.*)$/;
-const ZONE_ENTRY_RE  = /^You have entered (.+)\.$/;
-const WHO_FOOTER_RE  = /^There (?:are|is) \d+ players? in (.+)\.$/;
-const WHO_PLAYER_RE  = /^\[(\d+ [^\]]+|ANONYMOUS)\] ([\w`'-]+)(?:\s+\(([^)]+)\))?(?:\s+<([^>]+)>)?/;
-const SELF_LOOT_RE   = /^--You have looted an? (.+?)\s*\.--$/;
-const OTHER_LOOT_RE  = /^--([\w`'-]+) has looted an? (.+?)\s*\.--$/;
-
-function normalizeZone(name) {
-  return name.toLowerCase().replace(/^the\s+/, '').replace(/[-'\s]/g, '').trim();
-}
-
-function zoneMatchesFilters(zoneName, filters) {
-  if (!zoneName || !filters.length) return false;
-  const norm = normalizeZone(zoneName);
-  return filters.some(f => norm.includes(f) || f.includes(norm));
-}
+const {
+  LINE_RE, ZONE_ENTRY_RE, WHO_FOOTER_RE, WHO_PLAYER_RE, SELF_LOOT_RE, OTHER_LOOT_RE,
+  parseEQDateUTC, normalizeZone, zoneMatchesFilters,
+} = require('./parser');
 
 class LogWatcher extends EventEmitter {
   constructor({ filePath, timezone, characterName, approvedZones, raidDays, raidStartUTC, raidEndUTC, ignoredItems, starredItems }) {
@@ -48,12 +33,6 @@ class LogWatcher extends EventEmitter {
     this.raidEndUTC          = raidEndUTC ?? 17;
     this.ignoredItems        = new Set((ignoredItems || []).map(i => i.toLowerCase()));
     this.starredItems        = new Set((starredItems || []).map(i => i.toLowerCase()));
-  }
-
-  _isInRaidWindow(utcDate) {
-    const h = utcDate.getUTCHours();
-    return this.raidDays.has(utcDate.getUTCDay()) &&
-           h >= this.raidStartUTC && h < this.raidEndUTC;
   }
 
   _isApprovedZone(zoneName) {
