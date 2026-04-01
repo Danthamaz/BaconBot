@@ -20,6 +20,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setTitle('Pong!')
+      .setColor(0x8B0000)
       .addFields(
         { name: 'Roundtrip', value: `${roundtrip}ms`, inline: true },
         { name: 'WebSocket', value: `${ws}ms`, inline: true },

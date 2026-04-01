@@ -59,6 +59,24 @@ module.exports = {
           '`Select-String -Path eqlog.txt -Pattern "^\\[" | Where-Object { $_.Line -ge "[Mon Jan 01]" } | Set-Content trimmed.txt`',
         ].join('\n'),
       },
+      {
+        name: '💀 /tod',
+        value: [
+          '`record mob:<name> time:<now|timestamp>` — record a Time of Death',
+          '`status` — show current ToD windows for all tracked mobs',
+          '`history mob:<name>` — view ToD history for a specific mob',
+          '`undo mob:<name>` — remove the most recent ToD entry',
+          '`mob-add name:<name> lockout:<duration>` — add a new tracked mob',
+          '`mob-edit name:<name> [new_name] [lockout]` — edit a tracked mob',
+          '`mob-remove name:<name>` — remove a tracked mob',
+        ].join('\n'),
+      },
+      {
+        name: '🏓 /ping',
+        value: [
+          '`/ping` — check bot roundtrip latency, WebSocket latency, and uptime',
+        ].join('\n'),
+      },
     ];
 
     const embed = new EmbedBuilder()
