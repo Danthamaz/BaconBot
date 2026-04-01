@@ -678,6 +678,8 @@ textarea:focus { outline: none; border-color: var(--accent); }
 }
 
 .loot-item {
+  display: flex;
+  align-items: center;
   padding: 3px 0;
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
@@ -708,6 +710,13 @@ textarea:focus { outline: none; border-color: var(--accent); }
 }
 .loot-item .loot-undo:hover { color: var(--red); }
 .loot-item .loot-name { color: var(--amber); }
+
+.loot-time {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: auto;
+  flex-shrink: 0;
+}
 
 .loot-edit-input {
   background: var(--bg-input);

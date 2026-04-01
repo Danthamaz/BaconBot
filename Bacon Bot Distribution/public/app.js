@@ -584,11 +584,11 @@ function startLive() {
     div.className = 'loot-item';
     div.dataset.index = idx;
     div.dataset.looter = d.playerName || '?';
-    div.innerHTML = renderLootEntry(idx, d.playerName || '?', null, d.itemName);
+    div.dataset.timestamp = d.timestamp || '';
+    div.innerHTML = renderLootEntry(idx, d.playerName || '?', null, d.itemName, d.timestamp);
     const isStarred = (config.starredItems || []).some(s => s.toLowerCase() === d.itemName.toLowerCase());
     if (isStarred) div.classList.add('loot-starred');
-    $('live-loot').appendChild(div);
-    $('live-loot').scrollTop = $('live-loot').scrollHeight;
+    $('live-loot').prepend(div);
   });
 
   liveSource.addEventListener('loot-update', e => {
@@ -596,9 +596,10 @@ function startLive() {
     const div = $('live-loot').querySelector(`[data-index="${d.index}"]`);
     if (!div) return;
     const looter = div.dataset.looter;
+    const timestamp = div.dataset.timestamp || '';
     const itemEl = div.querySelector('.loot-name');
     const itemName = itemEl ? itemEl.textContent : '';
-    div.innerHTML = renderLootEntry(d.index, looter, d.awardedTo, itemName);
+    div.innerHTML = renderLootEntry(d.index, looter, d.awardedTo, itemName, timestamp);
   });
 
   liveSource.addEventListener('item-ignored', e => {
@@ -875,19 +876,20 @@ function cleanupLive() {
   $('btn-end-raid').classList.add('hidden');
 }
 
-function renderLootEntry(index, looter, awardedTo, itemName) {
+function renderLootEntry(index, looter, awardedTo, itemName, timestamp) {
   const ignoreBtn = `<span class="loot-ignore" title="Ignore this item" onclick="ignoreLootItem('${itemName.replace(/'/g, "\\'")}')">X</span>`;
+  const timeStr = timestamp ? `<span class="loot-time">${new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` : '';
   if (awardedTo && awardedTo !== looter) {
     return `<span class="loot-player loot-original">${looter}</span> ` +
       `<span class="loot-arrow">\u2192</span> ` +
       `<span class="loot-awarded" title="Click to change" onclick="editLootPlayer(${index})">${awardedTo}</span> ` +
       `looted <span class="loot-name">${itemName}</span>` +
       `<span class="loot-undo" title="Undo reassign" onclick="undoLootPlayer(${index})"> \u2715</span>` +
-      ignoreBtn;
+      ignoreBtn + timeStr;
   }
   return `<span class="loot-player" title="Click to reassign" onclick="editLootPlayer(${index})">${looter}</span> ` +
     `looted <span class="loot-name">${itemName}</span>` +
-    ignoreBtn;
+    ignoreBtn + timeStr;
 }
 
 window.editLootPlayer = async function(index) {
@@ -911,12 +913,13 @@ window.editLootPlayer = async function(index) {
     committed = true;
     const newName = input.value.trim();
     const looter = div.dataset.looter;
+    const timestamp = div.dataset.timestamp || '';
     const itemEl = div.querySelector('.loot-name');
     const itemName = itemEl ? itemEl.textContent : '';
 
     if (!newName || newName === looter) {
       // Clear awardedTo — revert to original
-      div.innerHTML = renderLootEntry(index, looter, null, itemName);
+      div.innerHTML = renderLootEntry(index, looter, null, itemName, timestamp);
       if (newName === looter) {
         try {
           await fetch('/api/live/loot', {
@@ -940,7 +943,7 @@ window.editLootPlayer = async function(index) {
       alert('Failed to update loot');
       return;
     }
-    div.innerHTML = renderLootEntry(index, looter, newName, itemName);
+    div.innerHTML = renderLootEntry(index, looter, newName, itemName, timestamp);
   }
 
   input.addEventListener('keydown', e => {
@@ -1415,10 +1418,13 @@ function generateRaidGroups() {
     return `<div class="group-card"><h4>Group ${g.number}: ${g.label} (${g.members.length})</h4>${members}</div>`;
   }).join('');
 
-  // /rm commands -- one line per player: /rm PlayerName GroupNumber
-  const commands = raidGroupsResult.flatMap(g =>
+  // First move everyone to ungrouped (group 0) for a clean slate
+  const resetCommands = raidRoster.map(p => `/rm ${p.name} 0`).join('\n');
+  // Then assign to groups
+  const assignCommands = raidGroupsResult.flatMap(g =>
     g.members.map(m => `/rm ${m.name} ${g.number}`)
   ).join('\n');
+  const commands = resetCommands + '\n' + assignCommands;
   $('raid-commands').textContent = commands;
 
   $('raid-groups-output').classList.remove('hidden');
