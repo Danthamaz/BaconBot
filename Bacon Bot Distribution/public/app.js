@@ -895,12 +895,12 @@ function renderLootEntry(index, looter, awardedTo, itemName, timestamp) {
     return `<span class="loot-player loot-original">${looter}</span> ` +
       `<span class="loot-arrow">\u2192</span> ` +
       `<span class="loot-awarded" title="Click to change" onclick="editLootPlayer(${index})">${awardedTo}</span> ` +
-      `looted <span class="loot-name">${itemName}</span>` +
-      `<span class="loot-undo" title="Undo reassign" onclick="undoLootPlayer(${index})"> \u2715</span>` +
+      ` looted <span class="loot-name">${itemName}</span> ` +
+      `<span class="loot-undo" title="Undo reassign" onclick="undoLootPlayer(${index})"> \u2715</span> ` +
       ignoreBtn + timeStr;
   }
-  return `<span class="loot-player" title="Click to reassign" onclick="editLootPlayer(${index})">${looter}</span> ` +
-    `looted <span class="loot-name">${itemName}</span>` +
+  return `<span class="loot-player" title="Click to reassign" onclick="editLootPlayer(${index})">${looter}</span>` +
+    ` looted <span class="loot-name">${itemName}</span> ` +
     ignoreBtn + timeStr;
 }
 
