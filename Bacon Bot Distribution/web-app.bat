@@ -18,6 +18,13 @@ if %errorlevel% neq 0 (
 )
 
 cd /d "%~dp0"
+
+if not exist "node_modules" (
+    echo Installing dependencies...
+    npm install --production
+    echo.
+)
+
 start "" http://localhost:3456
 node web-app.js
 
