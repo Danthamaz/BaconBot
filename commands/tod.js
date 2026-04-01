@@ -160,6 +160,7 @@ async function execute(interaction) {
     case 'mob-add': return handleMobAdd(interaction);
     case 'mob-edit': return handleMobEdit(interaction);
     case 'mob-remove': return handleMobRemove(interaction);
+    default: return interaction.reply({ content: '❌ Unknown subcommand.', ephemeral: true });
   }
 }
 

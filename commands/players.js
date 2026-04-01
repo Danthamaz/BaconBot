@@ -162,5 +162,6 @@ module.exports = {
       );
     }
 
+    return interaction.reply({ content: '❌ Unknown subcommand.', ephemeral: true });
   },
 };

@@ -81,5 +81,7 @@ module.exports = {
       removeKeyHolder(charName);
       return interaction.reply(`🗝️ **${charName}** removed from key holders.`);
     }
+
+    return interaction.reply({ content: '❌ Unknown subcommand.', ephemeral: true });
   },
 };

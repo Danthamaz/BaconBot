@@ -230,5 +230,7 @@ module.exports = {
         `🗑️ Raid **#${id} — ${raid.name}** has been deleted, along with all its attendance and loot records.`
       );
     }
+
+    return interaction.reply({ content: '❌ Unknown subcommand.', ephemeral: true });
   },
 };

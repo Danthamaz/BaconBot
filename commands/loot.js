@@ -19,8 +19,6 @@ const {
   searchItemLoot,
   resolveCharacterNames,
   getDiscordInfoForChar,
-  getCharsForDiscordId,
-  enrichWithDiscordInfo,
 } = require('../lib/db');
 
 function formatDateTime(ts) {
@@ -198,5 +196,7 @@ module.exports = {
 
       return interaction.reply({ embeds: [embed] });
     }
+
+    return interaction.reply({ content: '❌ Unknown subcommand.', ephemeral: true });
   },
 };

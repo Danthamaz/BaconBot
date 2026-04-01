@@ -65,6 +65,7 @@ function apiGet(url, key) {
         catch { resolve({ status: res.statusCode, body: resp }); }
       });
     });
+    req.setTimeout(10000, () => { req.destroy(new Error('Request timeout')); });
     req.on('error', reject);
     req.end();
   });
@@ -94,6 +95,7 @@ function apiPost(url, body, key) {
         catch { resolve({ status: res.statusCode, body: resp }); }
       });
     });
+    req.setTimeout(10000, () => { req.destroy(new Error('Request timeout')); });
     req.on('error', reject);
     req.write(data);
     req.end();
@@ -140,10 +142,15 @@ function serveStatic(req, res) {
 
 // ── Request body reader ─────────────────────────────────────────────────────
 
-function readBody(req) {
+function readBody(req, maxSize = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', c => chunks.push(c));
+    let size = 0;
+    req.on('data', c => {
+      size += c.length;
+      if (size > maxSize) { req.destroy(); reject(new Error('Request body too large')); return; }
+      chunks.push(c);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString()));
     req.on('error', reject);
   });
@@ -310,7 +317,8 @@ async function handleRequest(req, res) {
 
     // ── POST /api/config ────────────────────────────────────────
     if (req.method === 'POST' && route === '/api/config') {
-      const body = JSON.parse(await readBody(req));
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
       const cfg = loadConfig();
       if (body.character !== undefined)     cfg.character     = body.character;
       if (body.timezone !== undefined)      cfg.timezone      = body.timezone;
@@ -403,7 +411,8 @@ async function handleRequest(req, res) {
       if (liveDevMode) return json(200, { action: 'dev-mode', message: 'Skipped — dev mode active' });
       if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
 
-      const body = JSON.parse(await readBody(req));
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
       const { session, character } = body;
       const zoneStr  = session.zones.join(', ');
       const autoName = `${session.date} ${session.dayName} - ${session.zones.slice(0, 2).join(', ')}`;
@@ -493,7 +502,8 @@ async function handleRequest(req, res) {
     if (req.method === 'POST' && route === '/api/link-character') {
       if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
       try {
-        const body = JSON.parse(await readBody(req));
+        let body;
+        try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
         const result = await apiPost(`${serverUrl}/link-character`, body, apiKey);
         return json(result.status, result.body);
       } catch (err) {
@@ -745,7 +755,8 @@ async function handleRequest(req, res) {
     // ── POST /api/live/attendance ────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/attendance') {
       if (!liveWatcher) return json(400, { error: 'Live mode not running' });
-      const body = JSON.parse(await readBody(req));
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
       const { name, action } = body;
       if (!name || !action) return json(400, { error: 'name and action required' });
 
@@ -796,7 +807,8 @@ async function handleRequest(req, res) {
     // ── POST /api/live/loot ─────────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/loot') {
       if (!liveWatcher) return json(400, { error: 'Live mode not running' });
-      const body = JSON.parse(await readBody(req));
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
       const { index, awardedTo } = body;
       if (index === undefined) return json(400, { error: 'index is required' });
       const ok = liveWatcher.updateLoot(index, awardedTo || null);
@@ -807,7 +819,8 @@ async function handleRequest(req, res) {
 
     // ── POST /api/live/ignore-item ─────────────────────────────
     if (req.method === 'POST' && route === '/api/live/ignore-item') {
-      const body = JSON.parse(await readBody(req));
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
       const itemName = (body.itemName || '').trim();
       if (!itemName) return json(400, { error: 'itemName is required' });
 
@@ -833,7 +846,8 @@ async function handleRequest(req, res) {
     // ── POST /api/live/zone ─────────────────────────────────────
     if (req.method === 'POST' && route === '/api/live/zone') {
       if (!liveWatcher) return json(400, { error: 'Live mode not running' });
-      const body = JSON.parse(await readBody(req));
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
       const zone = body.zone;
       if (!zone) return json(400, { error: 'zone is required' });
       liveWatcher.setZone(zone);
@@ -896,7 +910,8 @@ async function handleRequest(req, res) {
 
     // ── POST /api/star-item ───────────────────────────────────────
     if (req.method === 'POST' && route === '/api/star-item') {
-      const body = JSON.parse(await readBody(req));
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Invalid JSON' }); }
       const { itemName, starred } = body;
       if (!itemName) return json(400, { error: 'itemName required' });
       const cfg = loadConfig();
@@ -966,7 +981,7 @@ const SHUTDOWN_TIMEOUT = 60000; // 60 seconds with no heartbeat
 
 setInterval(() => {
   if (Date.now() - lastHeartbeat > SHUTDOWN_TIMEOUT) {
-    console.log('\n  No browser connected for 30s — shutting down.\n');
+    console.log('\n  No browser connected for 60s — shutting down.\n');
     if (liveWatcher) {
       saveSessionToFile();
       liveWatcher.stop();
