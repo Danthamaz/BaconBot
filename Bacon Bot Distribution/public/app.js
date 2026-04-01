@@ -1312,22 +1312,38 @@ function assignRaidGroups(roster) {
     }
   }
 
-  // ── Distribute healers: one per group, spread evenly ──
+  // ── Distribute healers: shamans first (max 1 per group), then other healers ──
   const allDpsGroups = [...meleeGroups, ...casterGroups];
-  for (const g of allDpsGroups) {
-    if (buckets.healer.length === 0) break;
-    if (g.members.length < MAX_SIZE) {
-      g.members.push(buckets.healer.shift());
+  const shamans = buckets.healer.filter(p => p.class === 'Shaman');
+  const otherHealers = buckets.healer.filter(p => p.class !== 'Shaman');
+
+  // One shaman per group (skip tank group which may already have one)
+  const hasShamanInTank = tankGroup.members.some(m => m.class === 'Shaman');
+  const shamanTargets = hasShamanInTank ? allDpsGroups : [tankGroup, ...allDpsGroups];
+  for (const g of shamanTargets) {
+    if (shamans.length === 0) break;
+    if (g.members.length < MAX_SIZE && !g.members.some(m => m.class === 'Shaman')) {
+      g.members.push(shamans.shift());
     }
   }
 
-  // Second pass: distribute remaining healers
+  // Distribute other healers evenly
   for (const g of allDpsGroups) {
-    if (buckets.healer.length === 0) break;
+    if (otherHealers.length === 0) break;
     if (g.members.length < MAX_SIZE) {
-      g.members.push(buckets.healer.shift());
+      g.members.push(otherHealers.shift());
     }
   }
+
+  // Second pass: remaining healers (shamans + others) into any group with space
+  const remainingHealers = [...shamans, ...otherHealers];
+  for (const g of [tankGroup, ...allDpsGroups]) {
+    if (remainingHealers.length === 0) break;
+    if (g.members.length < MAX_SIZE) {
+      g.members.push(remainingHealers.shift());
+    }
+  }
+  buckets.healer = remainingHealers;
 
   // Number and add melee/caster groups
   for (const g of meleeGroups) {
