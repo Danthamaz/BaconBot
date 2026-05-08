@@ -3,6 +3,16 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../lib/db');
 
+// ── Officer role check ──────────────────────────────────────────────────
+
+const OFFICER_ROLE_IDS = (process.env.OFFICER_ROLE_IDS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+function isOfficer(member) {
+  if (OFFICER_ROLE_IDS.length === 0) return true; // no roles configured = unrestricted
+  return OFFICER_ROLE_IDS.some(id => member.roles.cache.has(id));
+}
+
 // ── Duration formatting ──────────────────────────────────────────────────
 
 /** Convert fractional hours to a human-readable string like "2d 18h 3m". */
@@ -33,6 +43,13 @@ function parseTimestamp(input) {
   const s = input.trim();
 
   if (s.toLowerCase() === 'now') return Date.now();
+
+  // Relative past: -6h, -2d, -30m, -2d6h30m etc.
+  const relMatch = s.match(/^-(.+)$/);
+  if (relMatch) {
+    const hours = parseLockout(relMatch[1]);
+    if (hours != null) return Date.now() - hours * 3600_000;
+  }
 
   // Discord timestamp: <t:1740700440> or <t:1740700440:F> etc.
   const discordMatch = s.match(/^<t:(\d+)(?::[tTdDfFR])?>$/);
@@ -102,11 +119,13 @@ const data = new SlashCommandBuilder()
       .addStringOption(o => o.setName('mob').setDescription('Mob name').setRequired(true).setAutocomplete(true))
       .addStringOption(o => o.setName('time').setDescription('Kill time: now or Discord timestamp <t:...>').setRequired(true))
       .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ'))
+      .addBooleanOption(o => o.setName('pvp').setDescription('Mark as PvP target (officer-only visibility)'))
   )
   .addSubcommand(sub =>
     sub.setName('status')
       .setDescription('Show mob lockout status')
       .addStringOption(o => o.setName('mob').setDescription('Filter to a specific mob').setAutocomplete(true))
+      .addBooleanOption(o => o.setName('pvp').setDescription('Show PvP targets (officers only, ephemeral)'))
   )
   .addSubcommand(sub =>
     sub.setName('history')
@@ -124,6 +143,7 @@ const data = new SlashCommandBuilder()
       .setDescription('Add a mob to the TOD registry')
       .addStringOption(o => o.setName('name').setDescription('Mob name').setRequired(true))
       .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ').setRequired(true))
+      .addBooleanOption(o => o.setName('pvp').setDescription('Mark as PvP target (officer-only visibility)'))
   )
   .addSubcommand(sub =>
     sub.setName('mob-edit')
@@ -170,6 +190,7 @@ async function handleRecord(interaction) {
   const mobName = interaction.options.getString('mob');
   const timeStr = interaction.options.getString('time');
   const lockoutStr = interaction.options.getString('lockout');
+  const pvpFlag = interaction.options.getBoolean('pvp') ?? false;
 
   const killedAt = parseTimestamp(timeStr);
   if (!killedAt) {
@@ -191,8 +212,14 @@ async function handleRecord(interaction) {
   }
 
   if (!mob) {
-    db.addTodMob(mobName, lockoutHours, interaction.user.id);
+    db.addTodMob(mobName, lockoutHours, interaction.user.id, pvpFlag);
     mob = db.getTodMob(mobName);
+  }
+
+  // PvP mob interactions require officer role and respond ephemerally
+  const isPvp = !!mob.pvp;
+  if (isPvp && !isOfficer(interaction.member)) {
+    return interaction.reply({ content: '❌ Only officers can record PvP targets.', flags: 64 });
   }
 
   db.recordTodKill(mob.id, killedAt, interaction.user.id);
@@ -202,23 +229,35 @@ async function handleRecord(interaction) {
   const respawnUnix = Math.floor(respawnAt / 1000);
 
   const embed = new EmbedBuilder()
-    .setTitle(`TOD Recorded: ${mob.name}`)
-    .setColor(0x00AE86)
+    .setTitle(`TOD Recorded: ${mob.name}${isPvp ? ' 🎯' : ''}`)
+    .setColor(isPvp ? 0xE67E22 : 0x00AE86)
     .addFields(
       { name: 'Killed', value: `<t:${killUnix}:f> (<t:${killUnix}:R>)`, inline: true },
       { name: 'Respawn', value: `<t:${respawnUnix}:f> (<t:${respawnUnix}:R>)`, inline: true },
       { name: 'Lockout', value: formatDuration(mob.lockout_hours), inline: true },
     );
 
-  return interaction.reply({ embeds: [embed] });
+  return interaction.reply({ embeds: [embed], flags: isPvp ? 64 : 0 });
 }
 
 async function handleStatus(interaction) {
   const mobFilter = interaction.options.getString('mob');
+  const pvpMode = interaction.options.getBoolean('pvp') ?? false;
+
+  if (pvpMode && !isOfficer(interaction.member)) {
+    return interaction.reply({ content: '❌ Only officers can view PvP targets.', flags: 64 });
+  }
 
   if (mobFilter) {
     const mob = db.getTodMob(mobFilter);
     if (!mob) return interaction.reply({ content: `❌ Mob **${mobFilter}** not found.`, flags: 64 });
+
+    // Block non-officers from viewing PvP mobs directly
+    const isPvp = !!mob.pvp;
+    if (isPvp && !isOfficer(interaction.member)) {
+      return interaction.reply({ content: `❌ Mob **${mobFilter}** not found.`, flags: 64 });
+    }
+
     const kill = db.getLatestTodKill(mob.id);
     const now = Date.now();
     const respawnAt = kill ? kill.killed_at + mob.lockout_hours * 3600_000 : null;
@@ -234,7 +273,7 @@ async function handleStatus(interaction) {
 
     const color = isLocked ? 0xE74C3C : event ? 0xF39C12 : 0x2ECC71;
     const embed = new EmbedBuilder()
-      .setTitle(`TOD Status: ${mob.name}`)
+      .setTitle(`TOD Status: ${mob.name}${isPvp ? ' 🎯' : ''}`)
       .setColor(color);
 
     if (kill) {
@@ -252,13 +291,16 @@ async function handleStatus(interaction) {
       const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
       embed.addFields({ name: '📅 Scheduled Event', value: `**${event.name}** — <t:${eventUnix}:f> (<t:${eventUnix}:R>)` });
     }
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], flags: isPvp ? 64 : 0 });
   }
 
   // Full status view
-  const allMobs = db.getTodStatus();
+  const allMobs = db.getTodStatus(pvpMode);
   if (allMobs.length === 0) {
-    return interaction.reply({ content: 'No mobs in the TOD registry. Use `/tod mob-add` to add one.', flags: 64 });
+    const msg = pvpMode
+      ? 'No PvP targets in the registry. Use `/tod mob-add` with `pvp: True` to add one.'
+      : 'No mobs in the TOD registry. Use `/tod mob-add` to add one.';
+    return interaction.reply({ content: msg, flags: 64 });
   }
 
   // Fetch upcoming scheduled events to cross-reference with mob names
@@ -294,8 +336,8 @@ async function handleStatus(interaction) {
   }
 
   const embed = new EmbedBuilder()
-    .setTitle('TOD Status')
-    .setColor(0x3498DB)
+    .setTitle(pvpMode ? 'PvP Target Status 🎯' : 'TOD Status')
+    .setColor(pvpMode ? 0xE67E22 : 0x3498DB)
     .setTimestamp();
 
   if (locked.length > 0) {
@@ -308,7 +350,7 @@ async function handleStatus(interaction) {
     embed.addFields({ name: '🟢 Available', value: available.join('\n') });
   }
 
-  return interaction.reply({ embeds: [embed] });
+  return interaction.reply({ embeds: [embed], flags: pvpMode ? 64 : 0 });
 }
 
 async function handleHistory(interaction) {
@@ -317,6 +359,11 @@ async function handleHistory(interaction) {
 
   const mob = db.getTodMob(mobName);
   if (!mob) return interaction.reply({ content: `❌ Mob **${mobName}** not found.`, flags: 64 });
+
+  const isPvp = !!mob.pvp;
+  if (isPvp && !isOfficer(interaction.member)) {
+    return interaction.reply({ content: `❌ Mob **${mobName}** not found.`, flags: 64 });
+  }
 
   const kills = db.getTodKillHistory(mob.id, limit);
   if (kills.length === 0) {
@@ -330,12 +377,12 @@ async function handleHistory(interaction) {
   });
 
   const embed = new EmbedBuilder()
-    .setTitle(`Kill History: ${mob.name}`)
+    .setTitle(`Kill History: ${mob.name}${isPvp ? ' 🎯' : ''}`)
     .setDescription(lines.join('\n'))
     .setColor(0x9B59B6)
     .setFooter({ text: `Lockout: ${formatDuration(mob.lockout_hours)}` });
 
-  return interaction.reply({ embeds: [embed] });
+  return interaction.reply({ embeds: [embed], flags: isPvp ? 64 : 0 });
 }
 
 async function handleUndo(interaction) {
@@ -343,22 +390,32 @@ async function handleUndo(interaction) {
   const mob = db.getTodMob(mobName);
   if (!mob) return interaction.reply({ content: `❌ Mob **${mobName}** not found.`, flags: 64 });
 
+  const isPvp = !!mob.pvp;
+  if (isPvp && !isOfficer(interaction.member)) {
+    return interaction.reply({ content: `❌ Mob **${mobName}** not found.`, flags: 64 });
+  }
+
   const removed = db.undoLastTodKill(mob.id);
   if (!removed) {
     return interaction.reply({ content: `No kill entries to undo for **${mob.name}**.`, flags: 64 });
   }
 
   const unix = Math.floor(removed.killed_at / 1000);
-  return interaction.reply({ content: `✅ Removed kill entry for **${mob.name}** from <t:${unix}:f>.` });
+  return interaction.reply({ content: `✅ Removed kill entry for **${mob.name}** from <t:${unix}:f>.`, flags: isPvp ? 64 : 0 });
 }
 
 async function handleMobAdd(interaction) {
   const name = interaction.options.getString('name');
   const lockoutStr = interaction.options.getString('lockout');
+  const pvpFlag = interaction.options.getBoolean('pvp') ?? false;
   const lockout = parseLockout(lockoutStr);
 
   if (lockout == null) {
     return interaction.reply({ content: '❌ Could not parse lockout. Use: `6h`, `2d 18h 3m`, or paste the EQ lockout message.', flags: 64 });
+  }
+
+  if (pvpFlag && !isOfficer(interaction.member)) {
+    return interaction.reply({ content: '❌ Only officers can add PvP targets.', flags: 64 });
   }
 
   const existing = db.getTodMob(name);
@@ -366,8 +423,9 @@ async function handleMobAdd(interaction) {
     return interaction.reply({ content: `❌ **${existing.name}** already exists (lockout: ${formatDuration(existing.lockout_hours)}). Use \`/tod mob-edit\` to change it.`, flags: 64 });
   }
 
-  db.addTodMob(name, lockout, interaction.user.id);
-  return interaction.reply({ content: `✅ Added **${name}** with a **${formatDuration(lockout)}** lockout.` });
+  db.addTodMob(name, lockout, interaction.user.id, pvpFlag);
+  const label = pvpFlag ? `✅ Added PvP target **${name}**` : `✅ Added **${name}**`;
+  return interaction.reply({ content: `${label} with a **${formatDuration(lockout)}** lockout.`, flags: pvpFlag ? 64 : 0 });
 }
 
 async function handleMobEdit(interaction) {
@@ -382,8 +440,13 @@ async function handleMobEdit(interaction) {
   const mob = db.getTodMob(name);
   if (!mob) return interaction.reply({ content: `❌ Mob **${name}** not found.`, flags: 64 });
 
+  const isPvp = !!mob.pvp;
+  if (isPvp && !isOfficer(interaction.member)) {
+    return interaction.reply({ content: `❌ Mob **${name}** not found.`, flags: 64 });
+  }
+
   db.updateTodMob(mob.name, lockout);
-  return interaction.reply({ content: `✅ Updated **${mob.name}** lockout: ${formatDuration(mob.lockout_hours)} → **${formatDuration(lockout)}**.` });
+  return interaction.reply({ content: `✅ Updated **${mob.name}** lockout: ${formatDuration(mob.lockout_hours)} → **${formatDuration(lockout)}**.`, flags: isPvp ? 64 : 0 });
 }
 
 async function handleMobRemove(interaction) {
@@ -392,8 +455,13 @@ async function handleMobRemove(interaction) {
   const mob = db.getTodMob(name);
   if (!mob) return interaction.reply({ content: `❌ Mob **${name}** not found.`, flags: 64 });
 
+  const isPvp = !!mob.pvp;
+  if (isPvp && !isOfficer(interaction.member)) {
+    return interaction.reply({ content: `❌ Mob **${name}** not found.`, flags: 64 });
+  }
+
   db.removeTodMob(mob.name);
-  return interaction.reply({ content: `✅ Removed **${mob.name}** and all its kill history.` });
+  return interaction.reply({ content: `✅ Removed **${mob.name}** and all its kill history.`, flags: isPvp ? 64 : 0 });
 }
 
 // ── Exports ────────────────────────────────────────────────────────────────
