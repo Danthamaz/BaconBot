@@ -40,11 +40,12 @@ for (const file of fs.readdirSync(commandsDir).filter(f => f.endsWith('.js'))) {
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────
-async function purgeOldMessages(channel) {
+async function purgeOldMessages(channel, botOnly = false) {
   try {
     const cutoff   = Date.now() - 5 * 60 * 1000;
     const messages = await channel.messages.fetch({ limit: 100 });
-    const toDelete = messages.filter(m => !m.pinned && m.createdTimestamp < cutoff);
+    const toDelete = messages.filter(m => !m.pinned && m.createdTimestamp < cutoff
+      && (!botOnly || m.author.id === client.user.id));
     if (toDelete.size === 0) return;
     // bulkDelete requires 2+ messages; fall back to individual deletes for single messages
     if (toDelete.size === 1) {
@@ -63,11 +64,11 @@ client.once('clientReady', async () => {
   await eventTracker.init(client);
 
   // Auto-delete unpinned messages older than 5 minutes in designated channels
-  for (const id of AUTO_DELETE_CHANNELS) {
+  for (const { id, botOnly } of AUTO_DELETE_CHANNELS) {
     const ch = await client.channels.fetch(id).catch(() => null);
     if (ch) {
-      purgeOldMessages(ch);
-      setInterval(() => purgeOldMessages(ch), 60 * 1000);
+      purgeOldMessages(ch, botOnly);
+      setInterval(() => purgeOldMessages(ch, botOnly), 60 * 1000);
     }
   }
 });
@@ -88,7 +89,11 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 const ALLOWED_CHANNEL = process.env.CHANNEL_ID || null;
 
 // Channels where unpinned messages are auto-deleted after 5 minutes
-const AUTO_DELETE_CHANNELS = ['1464353128022278154', '1476650458918555680'];
+// botOnly: true = only delete messages from this bot
+const AUTO_DELETE_CHANNELS = [
+  { id: '1464353128022278154', botOnly: true },
+  { id: '1476650458918555680', botOnly: false },
+];
 
 client.on('interactionCreate', async interaction => {
   // Handle autocomplete interactions
