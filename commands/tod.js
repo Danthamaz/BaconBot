@@ -237,7 +237,7 @@ async function handleRecord(interaction) {
       { name: 'Lockout', value: formatDuration(mob.lockout_hours), inline: true },
     );
 
-  return interaction.reply({ embeds: [embed], flags: isPvp ? 64 : 0 });
+  return interaction.reply({ embeds: [embed], ...(isPvp && { flags: 64 }) });
 }
 
 async function handleStatus(interaction) {
@@ -291,7 +291,7 @@ async function handleStatus(interaction) {
       const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
       embed.addFields({ name: '📅 Scheduled Event', value: `**${event.name}** — <t:${eventUnix}:f> (<t:${eventUnix}:R>)` });
     }
-    return interaction.reply({ embeds: [embed], flags: isPvp ? 64 : 0 });
+    return interaction.reply({ embeds: [embed], ...(isPvp && { flags: 64 }) });
   }
 
   // Full status view
@@ -350,7 +350,7 @@ async function handleStatus(interaction) {
     embed.addFields({ name: '🟢 Available', value: available.join('\n') });
   }
 
-  return interaction.reply({ embeds: [embed], flags: pvpMode ? 64 : 0 });
+  return interaction.reply({ embeds: [embed], ...(pvpMode && { flags: 64 }) });
 }
 
 async function handleHistory(interaction) {
@@ -382,7 +382,7 @@ async function handleHistory(interaction) {
     .setColor(0x9B59B6)
     .setFooter({ text: `Lockout: ${formatDuration(mob.lockout_hours)}` });
 
-  return interaction.reply({ embeds: [embed], flags: isPvp ? 64 : 0 });
+  return interaction.reply({ embeds: [embed], ...(isPvp && { flags: 64 }) });
 }
 
 async function handleUndo(interaction) {
@@ -401,7 +401,7 @@ async function handleUndo(interaction) {
   }
 
   const unix = Math.floor(removed.killed_at / 1000);
-  return interaction.reply({ content: `✅ Removed kill entry for **${mob.name}** from <t:${unix}:f>.`, flags: isPvp ? 64 : 0 });
+  return interaction.reply({ content: `✅ Removed kill entry for **${mob.name}** from <t:${unix}:f>.`, ...(isPvp && { flags: 64 }) });
 }
 
 async function handleMobAdd(interaction) {
@@ -425,7 +425,7 @@ async function handleMobAdd(interaction) {
 
   db.addTodMob(name, lockout, interaction.user.id, pvpFlag);
   const label = pvpFlag ? `✅ Added PvP target **${name}**` : `✅ Added **${name}**`;
-  return interaction.reply({ content: `${label} with a **${formatDuration(lockout)}** lockout.`, flags: pvpFlag ? 64 : 0 });
+  return interaction.reply({ content: `${label} with a **${formatDuration(lockout)}** lockout.`, ...(pvpFlag && { flags: 64 }) });
 }
 
 async function handleMobEdit(interaction) {
@@ -446,7 +446,7 @@ async function handleMobEdit(interaction) {
   }
 
   db.updateTodMob(mob.name, lockout);
-  return interaction.reply({ content: `✅ Updated **${mob.name}** lockout: ${formatDuration(mob.lockout_hours)} → **${formatDuration(lockout)}**.`, flags: isPvp ? 64 : 0 });
+  return interaction.reply({ content: `✅ Updated **${mob.name}** lockout: ${formatDuration(mob.lockout_hours)} → **${formatDuration(lockout)}**.`, ...(isPvp && { flags: 64 }) });
 }
 
 async function handleMobRemove(interaction) {
@@ -461,7 +461,7 @@ async function handleMobRemove(interaction) {
   }
 
   db.removeTodMob(mob.name);
-  return interaction.reply({ content: `✅ Removed **${mob.name}** and all its kill history.`, flags: isPvp ? 64 : 0 });
+  return interaction.reply({ content: `✅ Removed **${mob.name}** and all its kill history.`, ...(isPvp && { flags: 64 }) });
 }
 
 // ── Exports ────────────────────────────────────────────────────────────────
