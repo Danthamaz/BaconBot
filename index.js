@@ -62,8 +62,9 @@ client.once('clientReady', async () => {
   console.log(`   Serving ${client.guilds.cache.size} guild(s)\n`);
   await eventTracker.init(client);
 
-  if (ALLOWED_CHANNEL) {
-    const ch = await client.channels.fetch(ALLOWED_CHANNEL).catch(() => null);
+  // Auto-delete unpinned messages older than 5 minutes in designated channels
+  for (const id of AUTO_DELETE_CHANNELS) {
+    const ch = await client.channels.fetch(id).catch(() => null);
     if (ch) {
       purgeOldMessages(ch);
       setInterval(() => purgeOldMessages(ch), 60 * 1000);
@@ -85,6 +86,9 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
 // Bot is only allowed in 'bacon-bot' channel
 const ALLOWED_CHANNEL = process.env.CHANNEL_ID || null;
+
+// Channels where unpinned messages are auto-deleted after 5 minutes
+const AUTO_DELETE_CHANNELS = ['1464353128022278154', '1476650458918555680'];
 
 client.on('interactionCreate', async interaction => {
   // Handle autocomplete interactions

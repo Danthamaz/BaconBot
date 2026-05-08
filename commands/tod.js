@@ -72,7 +72,7 @@ function parseLockout(input) {
   let matched = false;
 
   // Match components: number followed by a unit word/letter
-  const pattern = /(\d+(?:\.\d+)?)\s*(?:,?\s*(?:and\s+)?)(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
+  const pattern = /(\d+(?:\.\d+)?)\s*(?:,?\s*(?:and\s+)?)(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?![a-z])/gi;
   let match;
   while ((match = pattern.exec(s)) !== null) {
     matched = true;
@@ -224,9 +224,18 @@ async function handleStatus(interaction) {
     const respawnAt = kill ? kill.killed_at + mob.lockout_hours * 3600_000 : null;
     const isLocked = respawnAt && respawnAt > now;
 
+    // Check for a scheduled event matching this mob
+    const scheduledEvents = await interaction.guild.scheduledEvents.fetch().catch(() => new Map());
+    const mobLower = mob.name.toLowerCase();
+    const event = [...scheduledEvents.values()]
+      .filter(e => e.status === 1)
+      .find(e => e.name.toLowerCase().includes(mobLower)
+        || (e.description && e.description.toLowerCase().includes(mobLower)));
+
+    const color = isLocked ? 0xE74C3C : event ? 0xF39C12 : 0x2ECC71;
     const embed = new EmbedBuilder()
       .setTitle(`TOD Status: ${mob.name}`)
-      .setColor(isLocked ? 0xE74C3C : 0x2ECC71);
+      .setColor(color);
 
     if (kill) {
       const killUnix = Math.floor(kill.killed_at / 1000);
@@ -239,6 +248,10 @@ async function handleStatus(interaction) {
     } else {
       embed.setDescription('No kills recorded — mob is available.');
     }
+    if (event) {
+      const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
+      embed.addFields({ name: '📅 Scheduled Event', value: `**${event.name}** — <t:${eventUnix}:f> (<t:${eventUnix}:R>)` });
+    }
     return interaction.reply({ embeds: [embed] });
   }
 
@@ -248,8 +261,13 @@ async function handleStatus(interaction) {
     return interaction.reply({ content: 'No mobs in the TOD registry. Use `/tod mob-add` to add one.', flags: 64 });
   }
 
+  // Fetch upcoming scheduled events to cross-reference with mob names
+  const scheduledEvents = await interaction.guild.scheduledEvents.fetch().catch(() => new Map());
+  const upcomingEvents = [...scheduledEvents.values()].filter(e => e.status === 1); // 1 = SCHEDULED
+
   const now = Date.now();
   const locked = [];
+  const scheduled = [];
   const available = [];
 
   for (const m of allMobs) {
@@ -257,6 +275,16 @@ async function handleStatus(interaction) {
     if (respawnAt && respawnAt > now) {
       const respawnUnix = Math.floor(respawnAt / 1000);
       locked.push(`**${m.name}** — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`);
+      continue;
+    }
+
+    // Check if there's a scheduled event matching this mob
+    const mobLower = m.name.toLowerCase();
+    const event = upcomingEvents.find(e => e.name.toLowerCase().includes(mobLower)
+      || (e.description && e.description.toLowerCase().includes(mobLower)));
+    if (event) {
+      const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
+      scheduled.push(`**${m.name}** — event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
     } else if (m.last_killed_at) {
       const respawnUnix = Math.floor(respawnAt / 1000);
       available.push(`**${m.name}** — up since <t:${respawnUnix}:R>`);
@@ -272,6 +300,9 @@ async function handleStatus(interaction) {
 
   if (locked.length > 0) {
     embed.addFields({ name: '🔴 Locked Out', value: locked.join('\n') });
+  }
+  if (scheduled.length > 0) {
+    embed.addFields({ name: '📅 Scheduled', value: scheduled.join('\n') });
   }
   if (available.length > 0) {
     embed.addFields({ name: '🟢 Available', value: available.join('\n') });
