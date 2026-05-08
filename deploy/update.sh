@@ -16,6 +16,16 @@ BRANCH="master"
 
 echo "=== Updating BaconBot ==="
 
+# Stop the bot first so SQLite WAL is checkpointed cleanly
+echo "[0/4] Stopping bot..."
+sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+
+# Back up the database before syncing
+if [ -f "$APP_DIR/raid_data.db" ]; then
+  cp "$APP_DIR/raid_data.db" "$APP_DIR/raid_data.db.bak"
+  echo "  Backed up raid_data.db"
+fi
+
 # Download latest tarball from GitHub
 echo "[1/4] Downloading latest code..."
 cd /tmp
@@ -44,8 +54,8 @@ npm ci --production
 echo "[4/4] Deploying slash commands..."
 node deploy-commands.js
 
-# Restart the service
-sudo systemctl restart "$SERVICE_NAME"
+# Start the service (was stopped at the beginning)
+sudo systemctl start "$SERVICE_NAME"
 
 echo ""
 echo "=== Update complete ==="
