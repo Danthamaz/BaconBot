@@ -322,29 +322,36 @@ async function handleStatus(interaction) {
   const upcomingEvents = [...scheduledEvents.values()].filter(e => e.status === 1); // 1 = SCHEDULED
 
   const now = Date.now();
-  // Categorise each mob, keyed by expansion
-  const locked = {};    // expansion → lines[]
-  const scheduled = {}; // expansion → lines[]
-  const available = {}; // expansion → lines[]
+  const unavailable = {}; // expansion → lines[]
+  const available = {};   // expansion → lines[]
 
   for (const m of allMobs) {
     const exp = m.expansion || 'Other';
-    const respawnAt = m.last_killed_at ? m.last_killed_at + m.lockout_hours * 3600_000 : null;
-    if (respawnAt && respawnAt > now) {
-      const respawnUnix = Math.floor(respawnAt / 1000);
-      (locked[exp] ??= []).push(`**${m.name}** — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`);
-      continue;
-    }
+    const lockoutMs = m.lockout_hours * 3600_000;
+    const respawnAt = m.last_killed_at ? m.last_killed_at + lockoutMs : null;
+    const isLocked = respawnAt && respawnAt > now;
 
-    // Check if there's a scheduled event matching this mob (soonest first)
+    // Find soonest scheduled event for this mob
     const mobLower = m.name.toLowerCase();
     const event = upcomingEvents
       .filter(e => e.name.toLowerCase().includes(mobLower)
         || (e.description && e.description.toLowerCase().includes(mobLower)))
       .sort((a, b) => a.scheduledStartTimestamp - b.scheduledStartTimestamp)[0];
-    if (event) {
+
+    // Cutoff = event time minus lockout — last safe kill time
+    const cutoff = event ? event.scheduledStartTimestamp - lockoutMs : null;
+    const isReserved = cutoff && cutoff <= now;
+
+    if (isLocked) {
+      const respawnUnix = Math.floor(respawnAt / 1000);
+      (unavailable[exp] ??= []).push(`**${m.name}** — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`);
+    } else if (isReserved) {
       const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
-      (scheduled[exp] ??= []).push(`**${m.name}** — event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
+      (unavailable[exp] ??= []).push(`**${m.name}** — reserved for event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
+    } else if (event) {
+      // Available but has an upcoming event — show when hands-off starts
+      const cutoffUnix = Math.floor(cutoff / 1000);
+      (available[exp] ??= []).push(`**${m.name}** — available until <t:${cutoffUnix}:R> (📅 <t:${cutoffUnix}:f>)`);
     } else if (m.last_killed_at) {
       const respawnUnix = Math.floor(respawnAt / 1000);
       (available[exp] ??= []).push(`**${m.name}** — up since <t:${respawnUnix}:R>`);
@@ -353,7 +360,7 @@ async function handleStatus(interaction) {
     }
   }
 
-  /** Render a grouped section (e.g. "🔴 Locked Out") into embed field(s). */
+  /** Render a grouped section into embed field value with expansion subheadings. */
   function renderGrouped(groups) {
     const lines = [];
     const expansions = Object.keys(groups);
@@ -370,11 +377,8 @@ async function handleStatus(interaction) {
     .setColor(pvpMode ? 0xE67E22 : 0x3498DB)
     .setTimestamp();
 
-  if (Object.keys(locked).length > 0) {
-    embed.addFields({ name: '🔴 Locked Out', value: renderGrouped(locked) });
-  }
-  if (Object.keys(scheduled).length > 0) {
-    embed.addFields({ name: '📅 Scheduled', value: renderGrouped(scheduled) });
+  if (Object.keys(unavailable).length > 0) {
+    embed.addFields({ name: '🔴 Unavailable', value: renderGrouped(unavailable) });
   }
   if (Object.keys(available).length > 0) {
     embed.addFields({ name: '🟢 Available', value: renderGrouped(available) });
