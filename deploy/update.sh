@@ -38,10 +38,10 @@ echo "[2/4] Syncing files..."
 rsync -a --delete \
   --exclude='.env' \
   --exclude='node_modules' \
-  --exclude='raid_data.db' \
-  --exclude='raid_data.db-shm' \
-  --exclude='raid_data.db-wal' \
-  --exclude='quarm-cache.db' \
+  --exclude='*.db' \
+  --exclude='*.db-shm' \
+  --exclude='*.db-wal' \
+  --exclude='*.db.bak' \
   /tmp/BaconBot-${BRANCH}/ "$APP_DIR/"
 rm -rf /tmp/BaconBot-${BRANCH}
 
