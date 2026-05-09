@@ -106,6 +106,22 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.isChatInputCommand()) return;
 
+  // Force ephemeral replies in specific channels
+  const EPHEMERAL_CHANNELS = new Set(['1464353128022278154']);
+  if (EPHEMERAL_CHANNELS.has(interaction.channelId)) {
+    const origReply = interaction.reply.bind(interaction);
+    const origDefer = interaction.deferReply.bind(interaction);
+    interaction.reply = (opts) => {
+      if (typeof opts === 'string') opts = { content: opts };
+      opts.flags = 64;
+      return origReply(opts);
+    };
+    interaction.deferReply = (opts = {}) => {
+      opts.flags = 64;
+      return origDefer(opts);
+    };
+  }
+
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
 
