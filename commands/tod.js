@@ -336,15 +336,15 @@ async function handleStatus(interaction) {
       continue;
     }
 
-    // Check if there are scheduled events matching this mob
+    // Check if there's a scheduled event matching this mob (soonest first)
     const mobLower = m.name.toLowerCase();
-    const events = upcomingEvents.filter(e => e.name.toLowerCase().includes(mobLower)
-      || (e.description && e.description.toLowerCase().includes(mobLower)));
-    if (events.length > 0) {
-      for (const event of events) {
-        const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
-        (scheduled[exp] ??= []).push(`**${m.name}** — event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
-      }
+    const event = upcomingEvents
+      .filter(e => e.name.toLowerCase().includes(mobLower)
+        || (e.description && e.description.toLowerCase().includes(mobLower)))
+      .sort((a, b) => a.scheduledStartTimestamp - b.scheduledStartTimestamp)[0];
+    if (event) {
+      const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
+      (scheduled[exp] ??= []).push(`**${m.name}** — event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
     } else if (m.last_killed_at) {
       const respawnUnix = Math.floor(respawnAt / 1000);
       (available[exp] ??= []).push(`**${m.name}** — up since <t:${respawnUnix}:R>`);
