@@ -144,12 +144,26 @@ const data = new SlashCommandBuilder()
       .addStringOption(o => o.setName('name').setDescription('Mob name').setRequired(true))
       .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ').setRequired(true))
       .addBooleanOption(o => o.setName('pvp').setDescription('Mark as PvP target (officer-only visibility)'))
+      .addStringOption(o => o.setName('expansion').setDescription('EQ expansion').addChoices(
+        { name: 'Classic', value: 'Classic' },
+        { name: 'Kunark', value: 'Kunark' },
+        { name: 'Velious', value: 'Velious' },
+        { name: 'Luclin', value: 'Luclin' },
+        { name: 'PoP', value: 'PoP' },
+      ))
   )
   .addSubcommand(sub =>
     sub.setName('mob-edit')
-      .setDescription('Change a mob\'s lockout duration')
+      .setDescription('Edit a mob\'s lockout or expansion')
       .addStringOption(o => o.setName('name').setDescription('Mob name').setRequired(true).setAutocomplete(true))
-      .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ').setRequired(true))
+      .addStringOption(o => o.setName('lockout').setDescription('Lockout duration, e.g. 6h, 2d18h3m, or paste from EQ'))
+      .addStringOption(o => o.setName('expansion').setDescription('EQ expansion').addChoices(
+        { name: 'Classic', value: 'Classic' },
+        { name: 'Kunark', value: 'Kunark' },
+        { name: 'Velious', value: 'Velious' },
+        { name: 'Luclin', value: 'Luclin' },
+        { name: 'PoP', value: 'PoP' },
+      ))
   )
   .addSubcommand(sub =>
     sub.setName('mob-remove')
@@ -212,7 +226,7 @@ async function handleRecord(interaction) {
   }
 
   if (!mob) {
-    db.addTodMob(mobName, lockoutHours, interaction.user.id, pvpFlag);
+    db.addTodMob(mobName, lockoutHours, interaction.user.id, pvpFlag, null);
     mob = db.getTodMob(mobName);
   }
 
@@ -308,15 +322,17 @@ async function handleStatus(interaction) {
   const upcomingEvents = [...scheduledEvents.values()].filter(e => e.status === 1); // 1 = SCHEDULED
 
   const now = Date.now();
-  const locked = [];
-  const scheduled = [];
-  const available = [];
+  // Categorise each mob, keyed by expansion
+  const locked = {};    // expansion → lines[]
+  const scheduled = {}; // expansion → lines[]
+  const available = {}; // expansion → lines[]
 
   for (const m of allMobs) {
+    const exp = m.expansion || 'Other';
     const respawnAt = m.last_killed_at ? m.last_killed_at + m.lockout_hours * 3600_000 : null;
     if (respawnAt && respawnAt > now) {
       const respawnUnix = Math.floor(respawnAt / 1000);
-      locked.push(`**${m.name}** — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`);
+      (locked[exp] ??= []).push(`**${m.name}** — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`);
       continue;
     }
 
@@ -326,13 +342,25 @@ async function handleStatus(interaction) {
       || (e.description && e.description.toLowerCase().includes(mobLower)));
     if (event) {
       const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
-      scheduled.push(`**${m.name}** — event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
+      (scheduled[exp] ??= []).push(`**${m.name}** — event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
     } else if (m.last_killed_at) {
       const respawnUnix = Math.floor(respawnAt / 1000);
-      available.push(`**${m.name}** — up since <t:${respawnUnix}:R>`);
+      (available[exp] ??= []).push(`**${m.name}** — up since <t:${respawnUnix}:R>`);
     } else {
-      available.push(`**${m.name}** — no kills recorded`);
+      (available[exp] ??= []).push(`**${m.name}** — no kills recorded`);
     }
+  }
+
+  /** Render a grouped section (e.g. "🔴 Locked Out") into embed field(s). */
+  function renderGrouped(groups) {
+    const lines = [];
+    const expansions = Object.keys(groups);
+    const multiExpansion = expansions.length > 1 || (expansions.length === 1 && expansions[0] !== 'Other');
+    for (const exp of expansions) {
+      if (multiExpansion) lines.push(`__${exp}__`);
+      lines.push(...groups[exp]);
+    }
+    return lines.join('\n');
   }
 
   const embed = new EmbedBuilder()
@@ -340,14 +368,14 @@ async function handleStatus(interaction) {
     .setColor(pvpMode ? 0xE67E22 : 0x3498DB)
     .setTimestamp();
 
-  if (locked.length > 0) {
-    embed.addFields({ name: '🔴 Locked Out', value: locked.join('\n') });
+  if (Object.keys(locked).length > 0) {
+    embed.addFields({ name: '🔴 Locked Out', value: renderGrouped(locked) });
   }
-  if (scheduled.length > 0) {
-    embed.addFields({ name: '📅 Scheduled', value: scheduled.join('\n') });
+  if (Object.keys(scheduled).length > 0) {
+    embed.addFields({ name: '📅 Scheduled', value: renderGrouped(scheduled) });
   }
-  if (available.length > 0) {
-    embed.addFields({ name: '🟢 Available', value: available.join('\n') });
+  if (Object.keys(available).length > 0) {
+    embed.addFields({ name: '🟢 Available', value: renderGrouped(available) });
   }
 
   return interaction.reply({ embeds: [embed], ...(pvpMode && { flags: 64 }) });
@@ -408,6 +436,7 @@ async function handleMobAdd(interaction) {
   const name = interaction.options.getString('name');
   const lockoutStr = interaction.options.getString('lockout');
   const pvpFlag = interaction.options.getBoolean('pvp') ?? false;
+  const expansion = interaction.options.getString('expansion') ?? null;
 
   // Acknowledge immediately — copy-paste can delay client→gateway delivery
   // past Discord's 3-second interaction deadline
@@ -428,18 +457,24 @@ async function handleMobAdd(interaction) {
     return interaction.editReply({ content: `❌ **${existing.name}** already exists (lockout: ${formatDuration(existing.lockout_hours)}). Use \`/tod mob-edit\` to change it.` });
   }
 
-  db.addTodMob(name, lockout, interaction.user.id, pvpFlag);
+  db.addTodMob(name, lockout, interaction.user.id, pvpFlag, expansion);
   const label = pvpFlag ? `✅ Added PvP target **${name}**` : `✅ Added **${name}**`;
-  return interaction.editReply({ content: `${label} with a **${formatDuration(lockout)}** lockout.` });
+  const expLabel = expansion ? ` [${expansion}]` : '';
+  return interaction.editReply({ content: `${label}${expLabel} with a **${formatDuration(lockout)}** lockout.` });
 }
 
 async function handleMobEdit(interaction) {
   const name = interaction.options.getString('name');
   const lockoutStr = interaction.options.getString('lockout');
-  const lockout = parseLockout(lockoutStr);
+  const expansion = interaction.options.getString('expansion');
 
-  if (lockout == null) {
+  const lockout = lockoutStr ? parseLockout(lockoutStr) : undefined;
+  if (lockoutStr && lockout == null) {
     return interaction.reply({ content: '❌ Could not parse lockout. Use: `6h`, `2d 18h 3m`, or paste the EQ lockout message.', flags: 64 });
+  }
+
+  if (lockout === undefined && expansion === undefined) {
+    return interaction.reply({ content: '❌ Provide at least one of `lockout` or `expansion` to update.', flags: 64 });
   }
 
   const mob = db.getTodMob(name);
@@ -450,8 +485,15 @@ async function handleMobEdit(interaction) {
     return interaction.reply({ content: `❌ Mob **${name}** not found.`, flags: 64 });
   }
 
-  db.updateTodMob(mob.name, lockout);
-  return interaction.reply({ content: `✅ Updated **${mob.name}** lockout: ${formatDuration(mob.lockout_hours)} → **${formatDuration(lockout)}**.`, ...(isPvp && { flags: 64 }) });
+  const updates = {};
+  if (lockout !== undefined) updates.lockoutHours = lockout;
+  if (expansion !== undefined) updates.expansion = expansion;
+  db.updateTodMob(mob.name, updates);
+
+  const parts = [];
+  if (lockout !== undefined) parts.push(`lockout: ${formatDuration(mob.lockout_hours)} → **${formatDuration(lockout)}**`);
+  if (expansion !== undefined) parts.push(`expansion: ${mob.expansion || 'none'} → **${expansion || 'none'}**`);
+  return interaction.reply({ content: `✅ Updated **${mob.name}** ${parts.join(', ')}.`, ...(isPvp && { flags: 64 }) });
 }
 
 async function handleMobRemove(interaction) {
