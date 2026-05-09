@@ -12,6 +12,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const apiServer    = require('./lib/api-server');
 const eventTracker = require('./lib/event-tracker');
+const db           = require('./lib/db');
 const fs   = require('fs');
 const path = require('path');
 
@@ -140,3 +141,13 @@ if (!process.env.DISCORD_TOKEN) {
 
 client.login(process.env.DISCORD_TOKEN);
 apiServer.start(client);
+
+// ── Graceful shutdown (checkpoint SQLite WAL) ─────────────────────────────
+function shutdown(signal) {
+  console.log(`\n${signal} received — shutting down…`);
+  client.destroy();
+  db.closeDb();
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

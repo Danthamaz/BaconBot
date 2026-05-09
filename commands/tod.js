@@ -408,24 +408,29 @@ async function handleMobAdd(interaction) {
   const name = interaction.options.getString('name');
   const lockoutStr = interaction.options.getString('lockout');
   const pvpFlag = interaction.options.getBoolean('pvp') ?? false;
+
+  // Acknowledge immediately — copy-paste can delay client→gateway delivery
+  // past Discord's 3-second interaction deadline
+  await interaction.deferReply({ ...(pvpFlag && { flags: 64 }) });
+
   const lockout = parseLockout(lockoutStr);
 
   if (lockout == null) {
-    return interaction.reply({ content: '❌ Could not parse lockout. Use: `6h`, `2d 18h 3m`, or paste the EQ lockout message.', flags: 64 });
+    return interaction.editReply({ content: '❌ Could not parse lockout. Use: `6h`, `2d 18h 3m`, or paste the EQ lockout message.' });
   }
 
   if (pvpFlag && !isOfficer(interaction.member)) {
-    return interaction.reply({ content: '❌ Only officers can add PvP targets.', flags: 64 });
+    return interaction.editReply({ content: '❌ Only officers can add PvP targets.' });
   }
 
   const existing = db.getTodMob(name);
   if (existing) {
-    return interaction.reply({ content: `❌ **${existing.name}** already exists (lockout: ${formatDuration(existing.lockout_hours)}). Use \`/tod mob-edit\` to change it.`, flags: 64 });
+    return interaction.editReply({ content: `❌ **${existing.name}** already exists (lockout: ${formatDuration(existing.lockout_hours)}). Use \`/tod mob-edit\` to change it.` });
   }
 
   db.addTodMob(name, lockout, interaction.user.id, pvpFlag);
   const label = pvpFlag ? `✅ Added PvP target **${name}**` : `✅ Added **${name}**`;
-  return interaction.reply({ content: `${label} with a **${formatDuration(lockout)}** lockout.`, ...(pvpFlag && { flags: 64 }) });
+  return interaction.editReply({ content: `${label} with a **${formatDuration(lockout)}** lockout.` });
 }
 
 async function handleMobEdit(interaction) {
