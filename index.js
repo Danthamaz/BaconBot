@@ -9,7 +9,7 @@
 
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
 const apiServer    = require('./lib/api-server');
 const eventTracker = require('./lib/event-tracker');
 const db           = require('./lib/db');
@@ -72,6 +72,50 @@ client.once('clientReady', async () => {
       setInterval(() => purgeOldMessages(ch, botOnly), 60 * 1000);
     }
   }
+
+  // ── Spawn alert system ──────────────────────────────────────────────────
+  const spawnAlerted = new Set();
+
+  async function checkSpawnAlerts() {
+    const todChannelId = process.env.TOD_CHANNEL_ID;
+    if (!todChannelId) return;
+
+    const channel = await client.channels.fetch(todChannelId).catch(() => null);
+    if (!channel) return;
+
+    const allMobs = db.getTodStatus(false);
+    const now = Date.now();
+
+    for (const m of allMobs) {
+      if (!m.last_killed_at) continue;
+
+      const respawnAt = m.last_killed_at + m.lockout_hours * 3600_000;
+      const timeUntilSpawn = respawnAt - now;
+      const alertKey = `${m.id}:${m.last_killed_at}`;
+
+      // Alert when mob is spawning within ~1 hour and hasn't been alerted yet
+      if (timeUntilSpawn > 0 && timeUntilSpawn <= 60 * 60 * 1000 && !spawnAlerted.has(alertKey)) {
+        spawnAlerted.add(alertKey);
+
+        const respawnUnix = Math.floor(respawnAt / 1000);
+        const embed = new EmbedBuilder()
+          .setTitle(`Spawn Alert: ${m.name}`)
+          .setColor(0xF1C40F)
+          .setDescription(`**${m.name}** is respawning <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`)
+          .setTimestamp();
+
+        channel.send({ embeds: [embed] }).catch(err => {
+          console.error(`[SpawnAlert] Failed to send alert for ${m.name}:`, err);
+        });
+      }
+
+      // Cleanup: remove alert keys for mobs that have already spawned
+      if (respawnAt < now) spawnAlerted.delete(alertKey);
+    }
+  }
+
+  setInterval(checkSpawnAlerts, 60 * 1000);
+  checkSpawnAlerts();
 });
 
 client.on('guildScheduledEventUpdate', (oldEvent, newEvent) => {

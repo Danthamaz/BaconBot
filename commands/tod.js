@@ -108,6 +108,79 @@ function parseLockout(input) {
   return null;
 }
 
+// ── Status embed helpers ────────────────────────────────────────────────────
+
+/** Render a grouped section into embed field value with expansion subheadings. */
+function renderGrouped(groups) {
+  const lines = [];
+  const expansions = Object.keys(groups);
+  const multiExpansion = expansions.length > 1 || (expansions.length === 1 && expansions[0] !== 'Other');
+  for (const exp of expansions) {
+    if (multiExpansion) lines.push(`__${exp}__`);
+    lines.push(...groups[exp]);
+  }
+  return lines.join('\n');
+}
+
+/** Build the full TOD status embed (non-PvP only unless pvpMode=true). */
+async function buildFullStatusEmbed(guild, pvpMode = false) {
+  const allMobs = db.getTodStatus(pvpMode);
+  if (allMobs.length === 0) return null;
+
+  const scheduledEvents = await guild.scheduledEvents.fetch().catch(() => new Map());
+  const upcomingEvents = [...scheduledEvents.values()].filter(e => e.status === 1);
+
+  const now = Date.now();
+  const unavailable = {};
+  const available = {};
+
+  for (const m of allMobs) {
+    const exp = m.expansion || 'Other';
+    const lockoutMs = m.lockout_hours * 3600_000;
+    const respawnAt = m.last_killed_at ? m.last_killed_at + lockoutMs : null;
+    const isLocked = respawnAt && respawnAt > now;
+
+    const mobLower = m.name.toLowerCase();
+    const event = upcomingEvents
+      .filter(e => e.name.toLowerCase().includes(mobLower)
+        || (e.description && e.description.toLowerCase().includes(mobLower)))
+      .sort((a, b) => a.scheduledStartTimestamp - b.scheduledStartTimestamp)[0];
+
+    const cutoff = event ? event.scheduledStartTimestamp - lockoutMs : null;
+    const isReserved = cutoff && cutoff <= now;
+
+    if (isLocked) {
+      const respawnUnix = Math.floor(respawnAt / 1000);
+      (unavailable[exp] ??= []).push(`**${m.name}** — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`);
+    } else if (isReserved) {
+      const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
+      (unavailable[exp] ??= []).push(`**${m.name}** — reserved for event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
+    } else if (event) {
+      const cutoffUnix = Math.floor(cutoff / 1000);
+      (available[exp] ??= []).push(`**${m.name}** — available until <t:${cutoffUnix}:R> (📅 <t:${cutoffUnix}:f>)`);
+    } else if (m.last_killed_at) {
+      const respawnUnix = Math.floor(respawnAt / 1000);
+      (available[exp] ??= []).push(`**${m.name}** — up since <t:${respawnUnix}:R>`);
+    } else {
+      (available[exp] ??= []).push(`**${m.name}** — no kills recorded`);
+    }
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(pvpMode ? 'PvP Target Status 🎯' : 'TOD Status')
+    .setColor(pvpMode ? 0xE67E22 : 0x3498DB)
+    .setTimestamp();
+
+  if (Object.keys(unavailable).length > 0) {
+    embed.addFields({ name: '🔴 Unavailable', value: renderGrouped(unavailable) });
+  }
+  if (Object.keys(available).length > 0) {
+    embed.addFields({ name: '🟢 Available', value: renderGrouped(available) });
+  }
+
+  return embed;
+}
+
 // ── Slash command definition ───────────────────────────────────────────────
 
 const data = new SlashCommandBuilder()
@@ -236,6 +309,19 @@ async function handleRecord(interaction) {
     return interaction.reply({ content: '❌ Only officers can record PvP targets.', flags: 64 });
   }
 
+  // Block if mob is currently in lockout (prevent duplicate kills)
+  const latestKill = db.getLatestTodKill(mob.id);
+  if (latestKill) {
+    const existingRespawn = latestKill.killed_at + mob.lockout_hours * 3600_000;
+    if (existingRespawn > Date.now()) {
+      const respawnUnix = Math.floor(existingRespawn / 1000);
+      return interaction.reply({
+        content: `❌ **${mob.name}** is already on lockout — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>). Use \`/tod undo\` first if this needs to be corrected.`,
+        flags: 64,
+      });
+    }
+  }
+
   db.recordTodKill(mob.id, killedAt, interaction.user.id);
 
   const respawnAt = killedAt + mob.lockout_hours * 3600_000;
@@ -251,7 +337,15 @@ async function handleRecord(interaction) {
       { name: 'Lockout', value: formatDuration(mob.lockout_hours), inline: true },
     );
 
-  return interaction.reply({ embeds: [embed], ...(isPvp && { flags: 64 }) });
+  await interaction.reply({ embeds: [embed], ...(isPvp && { flags: 64 }) });
+
+  // Post public status update to channel
+  if (!isPvp) {
+    const statusEmbed = await buildFullStatusEmbed(interaction.guild);
+    if (statusEmbed) {
+      interaction.channel.send({ embeds: [statusEmbed] }).catch(() => {});
+    }
+  }
 }
 
 async function handleStatus(interaction) {
@@ -309,79 +403,12 @@ async function handleStatus(interaction) {
   }
 
   // Full status view
-  const allMobs = db.getTodStatus(pvpMode);
-  if (allMobs.length === 0) {
+  const embed = await buildFullStatusEmbed(interaction.guild, pvpMode);
+  if (!embed) {
     const msg = pvpMode
       ? 'No PvP targets in the registry. Use `/tod mob-add` with `pvp: True` to add one.'
       : 'No mobs in the TOD registry. Use `/tod mob-add` to add one.';
     return interaction.reply({ content: msg, flags: 64 });
-  }
-
-  // Fetch upcoming scheduled events to cross-reference with mob names
-  const scheduledEvents = await interaction.guild.scheduledEvents.fetch().catch(() => new Map());
-  const upcomingEvents = [...scheduledEvents.values()].filter(e => e.status === 1); // 1 = SCHEDULED
-
-  const now = Date.now();
-  const unavailable = {}; // expansion → lines[]
-  const available = {};   // expansion → lines[]
-
-  for (const m of allMobs) {
-    const exp = m.expansion || 'Other';
-    const lockoutMs = m.lockout_hours * 3600_000;
-    const respawnAt = m.last_killed_at ? m.last_killed_at + lockoutMs : null;
-    const isLocked = respawnAt && respawnAt > now;
-
-    // Find soonest scheduled event for this mob
-    const mobLower = m.name.toLowerCase();
-    const event = upcomingEvents
-      .filter(e => e.name.toLowerCase().includes(mobLower)
-        || (e.description && e.description.toLowerCase().includes(mobLower)))
-      .sort((a, b) => a.scheduledStartTimestamp - b.scheduledStartTimestamp)[0];
-
-    // Cutoff = event time minus lockout — last safe kill time
-    const cutoff = event ? event.scheduledStartTimestamp - lockoutMs : null;
-    const isReserved = cutoff && cutoff <= now;
-
-    if (isLocked) {
-      const respawnUnix = Math.floor(respawnAt / 1000);
-      (unavailable[exp] ??= []).push(`**${m.name}** — respawns <t:${respawnUnix}:R> (<t:${respawnUnix}:f>)`);
-    } else if (isReserved) {
-      const eventUnix = Math.floor(event.scheduledStartTimestamp / 1000);
-      (unavailable[exp] ??= []).push(`**${m.name}** — reserved for event <t:${eventUnix}:R> (<t:${eventUnix}:f>)`);
-    } else if (event) {
-      // Available but has an upcoming event — show when hands-off starts
-      const cutoffUnix = Math.floor(cutoff / 1000);
-      (available[exp] ??= []).push(`**${m.name}** — available until <t:${cutoffUnix}:R> (📅 <t:${cutoffUnix}:f>)`);
-    } else if (m.last_killed_at) {
-      const respawnUnix = Math.floor(respawnAt / 1000);
-      (available[exp] ??= []).push(`**${m.name}** — up since <t:${respawnUnix}:R>`);
-    } else {
-      (available[exp] ??= []).push(`**${m.name}** — no kills recorded`);
-    }
-  }
-
-  /** Render a grouped section into embed field value with expansion subheadings. */
-  function renderGrouped(groups) {
-    const lines = [];
-    const expansions = Object.keys(groups);
-    const multiExpansion = expansions.length > 1 || (expansions.length === 1 && expansions[0] !== 'Other');
-    for (const exp of expansions) {
-      if (multiExpansion) lines.push(`__${exp}__`);
-      lines.push(...groups[exp]);
-    }
-    return lines.join('\n');
-  }
-
-  const embed = new EmbedBuilder()
-    .setTitle(pvpMode ? 'PvP Target Status 🎯' : 'TOD Status')
-    .setColor(pvpMode ? 0xE67E22 : 0x3498DB)
-    .setTimestamp();
-
-  if (Object.keys(unavailable).length > 0) {
-    embed.addFields({ name: '🔴 Unavailable', value: renderGrouped(unavailable) });
-  }
-  if (Object.keys(available).length > 0) {
-    embed.addFields({ name: '🟢 Available', value: renderGrouped(available) });
   }
 
   return interaction.reply({ embeds: [embed], ...(pvpMode && { flags: 64 }) });
@@ -435,7 +462,15 @@ async function handleUndo(interaction) {
   }
 
   const unix = Math.floor(removed.killed_at / 1000);
-  return interaction.reply({ content: `✅ Removed kill entry for **${mob.name}** from <t:${unix}:f>.`, ...(isPvp && { flags: 64 }) });
+  await interaction.reply({ content: `✅ Removed kill entry for **${mob.name}** from <t:${unix}:f>.`, ...(isPvp && { flags: 64 }) });
+
+  // Post public status update to channel
+  if (!isPvp) {
+    const statusEmbed = await buildFullStatusEmbed(interaction.guild);
+    if (statusEmbed) {
+      interaction.channel.send({ embeds: [statusEmbed] }).catch(() => {});
+    }
+  }
 }
 
 async function handleMobAdd(interaction) {
