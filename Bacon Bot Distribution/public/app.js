@@ -100,6 +100,7 @@ async function loadConfig() {
     $('cfg-character').value = config.character || '';
     $('cfg-timezone').value  = config.timezone  || 'America/Phoenix';
     $('cfg-eqfolder').value  = config.eqFolder  || '';
+    populateVoiceChannels(config.voiceChannelId || '');
 
     // Raid schedule
     const days = config.raidDays || [0, 3, 5, 6];
@@ -134,10 +135,40 @@ async function loadConfig() {
   }
 }
 
+async function populateVoiceChannels(selectedId) {
+  const sel  = $('cfg-voicechannel');
+  const note = $('voicechannel-note');
+  sel.innerHTML = '<option value="">Server default</option>';
+  let loaded = false;
+  try {
+    const res  = await fetch('/api/voice-channels');
+    const data = await res.json();
+    if (res.ok && Array.isArray(data.channels)) {
+      for (const ch of data.channels) {
+        const opt = document.createElement('option');
+        opt.value = ch.id;
+        opt.textContent = ch.name;
+        sel.appendChild(opt);
+      }
+      loaded = true;
+    }
+  } catch {}
+  // Keep a saved selection visible even if it's not in the fetched list
+  if (selectedId && ![...sel.options].some(o => o.value === selectedId)) {
+    const opt = document.createElement('option');
+    opt.value = selectedId;
+    opt.textContent = `Saved channel (${selectedId})`;
+    sel.appendChild(opt);
+  }
+  sel.value = selectedId || '';
+  note.classList.toggle('hidden', loaded);
+}
+
 async function saveSettings() {
   config.character = $('cfg-character').value.trim();
   config.timezone  = $('cfg-timezone').value;
   config.eqFolder  = $('cfg-eqfolder').value.trim();
+  config.voiceChannelId = $('cfg-voicechannel').value;
 
   // Raid schedule
   config.raidDays = [];

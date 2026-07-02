@@ -160,6 +160,14 @@
           <input type="text" id="cfg-eqfolder" placeholder="e.g. C:\Apps\TAKPv22">
         </div>
 
+        <div class="form-group">
+          <label for="cfg-voicechannel">Raid Voice Channel <span class="hint">(checked for attendance validation)</span></label>
+          <select id="cfg-voicechannel">
+            <option value="">Server default</option>
+          </select>
+          <div id="voicechannel-note" class="hint hidden">Couldn't load the channel list from the bot — your saved choice is kept.</div>
+        </div>
+
         <div class="form-actions">
           <button id="btn-detect" class="btn-secondary">Detect Log File</button>
           <button id="btn-save-config" class="btn-primary">Save Settings</button>
