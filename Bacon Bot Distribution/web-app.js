@@ -27,6 +27,7 @@ const DEFAULT_CONFIG = {
   ignoredItems:  [],
   eqDbPath: '',
   starredItems: [],
+  voiceChannelId: '',                // '' = use the bot's RAID_VOICE_CHANNEL_ID
 };
 
 function loadConfig() {
@@ -42,6 +43,14 @@ function loadConfig() {
 
 function saveConfig(cfg) {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+}
+
+function voiceMembersUrl() {
+  const { voiceChannelId } = loadConfig();
+  if (voiceChannelId) {
+    return serverUrl + '/voice-members?channel=' + encodeURIComponent(voiceChannelId);
+  }
+  return serverUrl + '/voice-members';
 }
 
 // ── HTTP helpers (proxy to bot server) ──────────────────────────────────────
@@ -227,7 +236,7 @@ async function autoSaveLiveSession() {
   // Filter attendance to only validated + linked players
   let attendance = session.attendance;
   try {
-    const voiceResult = await apiGet(`${serverUrl}/voice-members`, apiKey);
+    const voiceResult = await apiGet(voiceMembersUrl(), apiKey);
     if (voiceResult.status === 200 && voiceResult.body.members) {
       const linkedChars = new Set();
       for (const vm of voiceResult.body.members) {
@@ -330,6 +339,7 @@ async function handleRequest(req, res) {
       if (body.ignoredItems !== undefined)  cfg.ignoredItems  = body.ignoredItems;
       if (body.eqDbPath !== undefined)      cfg.eqDbPath      = body.eqDbPath;
       if (body.starredItems !== undefined)  cfg.starredItems  = body.starredItems;
+      if (body.voiceChannelId !== undefined) cfg.voiceChannelId = body.voiceChannelId;
       saveConfig(cfg);
       // Rebuild item cache if zones changed
       if (body.approvedZones !== undefined && cfg.eqDbPath) {
@@ -426,7 +436,7 @@ async function handleRequest(req, res) {
       // Filter attendance to only validated + linked players
       let attendance = session.attendance;
       try {
-        const voiceResult = await apiGet(`${serverUrl}/voice-members`, apiKey);
+        const voiceResult = await apiGet(voiceMembersUrl(), apiKey);
         if (voiceResult.status === 200 && voiceResult.body.members) {
           const linkedChars = new Set();
           for (const vm of voiceResult.body.members) {
@@ -491,7 +501,18 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && route === '/api/voice-members') {
       if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
       try {
-        const result = await apiGet(`${serverUrl}/voice-members`, apiKey);
+        const result = await apiGet(voiceMembersUrl(), apiKey);
+        return json(result.status, result.body);
+      } catch (err) {
+        return json(502, { error: err.message });
+      }
+    }
+
+    // ── GET /api/voice-channels ────────────────────────────────────
+    if (req.method === 'GET' && route === '/api/voice-channels') {
+      if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
+      try {
+        const result = await apiGet(`${serverUrl}/voice-channels`, apiKey);
         return json(result.status, result.body);
       } catch (err) {
         return json(502, { error: err.message });
@@ -563,7 +584,7 @@ async function handleRequest(req, res) {
           } catch {}
 
           try {
-            const voiceResult = await apiGet(`${serverUrl}/voice-members`, apiKey);
+            const voiceResult = await apiGet(voiceMembersUrl(), apiKey);
             if (voiceResult.status === 200 && voiceResult.body.members) {
               const voiceConfirmed = new Set();
               for (const vm of voiceResult.body.members) {
