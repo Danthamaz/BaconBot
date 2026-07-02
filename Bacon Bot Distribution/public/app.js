@@ -140,6 +140,20 @@ async function populateVoiceChannels(selectedId) {
   const note = $('voicechannel-note');
   sel.innerHTML = '<option value="">Server default</option>';
   let loaded = false;
+
+  // Ensure the saved selection is selectable *synchronously*, before the fetch below
+  // settles. Without this, a Save Settings click while the request is in flight (or
+  // hung, e.g. bot unreachable) would read an empty select value and wipe the saved
+  // channel. Reconciled against the real list once it arrives, below.
+  let placeholderOpt = null;
+  if (selectedId) {
+    placeholderOpt = document.createElement('option');
+    placeholderOpt.value = selectedId;
+    placeholderOpt.textContent = `Saved channel (${selectedId})`;
+    sel.appendChild(placeholderOpt);
+  }
+  sel.value = selectedId || '';
+
   try {
     const res  = await fetch('/api/voice-channels');
     const data = await res.json();
@@ -153,14 +167,17 @@ async function populateVoiceChannels(selectedId) {
       loaded = true;
     }
   } catch {}
-  // Keep a saved selection visible even if it's not in the fetched list
-  if (selectedId && ![...sel.options].some(o => o.value === selectedId)) {
-    const opt = document.createElement('option');
-    opt.value = selectedId;
-    opt.textContent = `Saved channel (${selectedId})`;
-    sel.appendChild(opt);
+
+  // Reconcile the placeholder against the real list: if the saved channel is present
+  // in the fetched list, drop the synthetic option and select the named one; if not,
+  // keep the synthetic "Saved channel" option selected.
+  if (placeholderOpt) {
+    const hasRealMatch = loaded && [...sel.options].some(o => o !== placeholderOpt && o.value === selectedId);
+    if (hasRealMatch) {
+      placeholderOpt.remove();
+    }
+    sel.value = selectedId;
   }
-  sel.value = selectedId || '';
   note.classList.toggle('hidden', loaded);
 }
 
