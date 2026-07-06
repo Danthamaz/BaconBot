@@ -136,7 +136,6 @@ const ALLOWED_CHANNEL = process.env.CHANNEL_ID || null;
 // Channels where unpinned messages are auto-deleted after 5 minutes
 // botOnly: true = only delete messages from this bot
 const AUTO_DELETE_CHANNELS = [
-  { id: '1464353128022278154', botOnly: true },
   { id: '1476650458918555680', botOnly: false },
 ];
 

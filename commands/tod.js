@@ -110,8 +110,12 @@ function parseLockout(input) {
 
 // ── Status embed helpers ────────────────────────────────────────────────────
 
-/** Render a grouped section into embed field value with expansion subheadings. */
-function renderGrouped(groups) {
+/**
+ * Render a grouped section into one or more embed fields, splitting at line
+ * boundaries so no field value exceeds Discord's 1024-char limit.
+ * Continuation fields are named "<name> (cont.)".
+ */
+function buildStatusFields(name, groups) {
   const lines = [];
   const expansions = Object.keys(groups);
   const multiExpansion = expansions.length > 1 || (expansions.length === 1 && expansions[0] !== 'Other');
@@ -119,7 +123,25 @@ function renderGrouped(groups) {
     if (multiExpansion) lines.push(`__${exp}__`);
     lines.push(...groups[exp]);
   }
-  return lines.join('\n');
+
+  const MAX_FIELD_LENGTH = 1024;
+  const chunks = [];
+  let current = '';
+  for (const line of lines) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > MAX_FIELD_LENGTH && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+
+  return chunks.map((value, i) => ({
+    name: i === 0 ? name : `${name} (cont.)`,
+    value,
+  }));
 }
 
 /** Build the full TOD status embed (non-PvP only unless pvpMode=true). */
@@ -172,10 +194,10 @@ async function buildFullStatusEmbed(guild, pvpMode = false) {
     .setTimestamp();
 
   if (Object.keys(unavailable).length > 0) {
-    embed.addFields({ name: '🔴 Unavailable', value: renderGrouped(unavailable) });
+    embed.addFields(...buildStatusFields('🔴 Unavailable', unavailable));
   }
   if (Object.keys(available).length > 0) {
-    embed.addFields({ name: '🟢 Available', value: renderGrouped(available) });
+    embed.addFields(...buildStatusFields('🟢 Available', available));
   }
 
   return embed;
@@ -558,5 +580,6 @@ module.exports = {
   data,
   execute,
   autocomplete,
+  buildStatusFields, // exported for testing
   extraChannels: [process.env.TOD_CHANNEL_ID].filter(Boolean),
 };
