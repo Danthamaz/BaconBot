@@ -72,6 +72,19 @@ module.exports = {
         ].join('\n'),
       },
       {
+        name: '🏦 /bank',
+        value: [
+          '`view [mule] [page]` — browse the guild bank inventory',
+          '`search item:<partial> [mule]` — find an item in the bank',
+          '`history [item] [mule] [limit]` — recent deposits/withdrawals',
+          '`mules` — list bank mule characters',
+          '`deposit item qty [mule] [player] [note]` — record a deposit *(officers)*',
+          '`withdraw item qty [mule] [player] [note]` — record a withdrawal *(officers)*',
+          '`note item mule [text]` — set/clear a persistent item note *(officers)*',
+          '`undo id:<id>` — remove a mistaken transaction *(officers)*',
+        ].join('\n'),
+      },
+      {
         name: '🏓 /ping',
         value: [
           '`/ping` — check bot roundtrip latency, WebSocket latency, and uptime',
