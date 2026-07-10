@@ -5,6 +5,7 @@ let config       = { character: '', timezone: 'America/Phoenix', eqFolder: '' };
 let logFile      = null;
 let sessions     = [];
 let voiceMembers = null; // null = not fetched, [] = fetched but empty
+let guildMembers = null; // full guild roster for the link combobox; null = not fetched
 let liveSource   = null;
 let liveRunning  = false;
 let voiceInterval = null;
@@ -371,6 +372,27 @@ async function fetchVoiceMembers() {
   } catch {
     voiceMembers = null;
   }
+}
+
+// Fetch the full guild roster for the link combobox. Returns the members
+// array, or null if unavailable (e.g. Server Members Intent not enabled).
+async function fetchGuildMembers(force = false) {
+  if (guildMembers && !force) return guildMembers;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch('/api/guild-members', { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      guildMembers = data.members || [];
+    } else {
+      guildMembers = null;
+    }
+  } catch {
+    guildMembers = null;
+  }
+  return guildMembers;
 }
 
 function tagAttendanceWithVoice(session) {
@@ -853,96 +875,127 @@ async function refreshVoicePanel() {
 }
 
 
-window.linkPlayer = async function(characterName) {
-  // Refresh voice members to get latest list
-  await fetchVoiceMembers();
-
-  if (!voiceMembers || voiceMembers.length === 0) {
-    const rows = $('live-unlinked').querySelectorAll('.attend-row');
-    for (const row of rows) {
-      const nameEl = row.querySelector('.attend-name');
-      if (nameEl && nameEl.textContent === characterName) {
-        const linkEl = row.querySelector('.attend-link');
-        if (linkEl) {
-          linkEl.textContent = 'Voice unavailable';
-          linkEl.style.color = 'var(--red)';
-          setTimeout(() => { linkEl.textContent = 'Link'; linkEl.style.color = ''; }, 3000);
-        }
-        break;
-      }
-    }
-    return;
+// Link a character to a Discord user, then refresh the linked/unlinked lists.
+async function submitLink(characterName, discordId, discordTag) {
+  const res = await fetch('/api/link-character', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ characterName, discordId, discordTag }),
+  });
+  if (!res.ok) {
+    let msg = 'Failed to link';
+    try { msg = (await res.json()).error || msg; } catch {}
+    throw new Error(msg);
   }
+  // Pick up the new link everywhere, then re-render attendance.
+  await fetchGuildMembers(true);
+  await fetchVoiceMembers();
+  await refreshVoicePanel();
+  try {
+    const sessionRes = await fetch('/api/live/session');
+    if (sessionRes.ok) {
+      const session = await sessionRes.json();
+      const allPlayers = session.attendance.map(a => ({
+        name: a.name,
+        lastSeen: a.lastSeen || a.firstSeen,
+        exitTime: a.exitTime || null,
+      }));
+      await renderSplitAttendance(allPlayers);
+    }
+  } catch {}
+}
 
-  const options = voiceMembers.map(vm => {
-    const chars = vm.characters || (vm.character ? [vm.character] : []);
-    const label = chars.length > 0 ? `${esc(vm.displayName)} (${chars.map(c => esc(c)).join(', ')})` : esc(vm.displayName);
-    return `<option value="${esc(vm.discordId)}" data-tag="${escAttr(vm.displayName)}">${label}</option>`;
-  }).join('');
-
-  // Replace the Link button (or existing wrapper) with a dropdown
+window.linkPlayer = async function(characterName) {
+  // Locate the unlinked row for this character.
   const rows = $('live-unlinked').querySelectorAll('.attend-row');
+  let target = null;
   for (const row of rows) {
     const nameEl = row.querySelector('.attend-name');
-    if (nameEl && nameEl.textContent === characterName) {
-      const existing = row.querySelector('.link-inline') || row.querySelector('.attend-link');
-      if (!existing) return;
-      const wrapper = document.createElement('span');
-      wrapper.className = 'link-inline';
-      wrapper.innerHTML = `<select class="link-select"><option value="">-- Select --</option>${options}</select><button class="btn-sm btn-link-confirm">OK</button><button class="btn-sm btn-link-cancel">X</button>`;
-      existing.replaceWith(wrapper);
-
-      const sel = wrapper.querySelector('select');
-      const btn = wrapper.querySelector('.btn-link-confirm');
-      const cancelBtn = wrapper.querySelector('.btn-link-cancel');
-
-      cancelBtn.addEventListener('click', () => {
-        const link = document.createElement('span');
-        link.className = 'attend-link';
-        link.title = 'Link to Discord user';
-        link.onclick = () => linkPlayer(characterName);
-        link.textContent = 'Link';
-        wrapper.replaceWith(link);
-      });
-
-      btn.addEventListener('click', async () => {
-        const discordId = sel.value;
-        const discordTag = sel.selectedOptions[0]?.dataset.tag;
-        if (!discordId) return;
-        try {
-          const res = await fetch('/api/link-character', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ characterName, discordId, discordTag }),
-          });
-          if (res.ok) {
-            // Refresh voice members to pick up the new link, then re-render
-            await fetchVoiceMembers();
-            await refreshVoicePanel();
-            // Trigger a re-render of attendance by fetching current state
-            try {
-              const sessionRes = await fetch('/api/live/session');
-              if (sessionRes.ok) {
-                const session = await sessionRes.json();
-                const allPlayers = session.attendance.map(a => ({
-                  name: a.name,
-                  lastSeen: a.lastSeen || a.firstSeen,
-                  exitTime: a.exitTime || null,
-                }));
-                await renderSplitAttendance(allPlayers);
-              }
-            } catch {}
-          } else {
-            const data = await res.json();
-            alert(data.error || 'Failed to link');
-          }
-        } catch {
-          alert('Failed to link character');
-        }
-      });
-      break;
-    }
+    if (nameEl && nameEl.textContent === characterName) { target = row; break; }
   }
+  if (!target) return;
+  const existing = target.querySelector('.link-inline') || target.querySelector('.attend-link');
+  if (!existing) return;
+
+  // Build the combobox shell.
+  const wrapper = document.createElement('span');
+  wrapper.className = 'link-inline';
+  wrapper.innerHTML =
+    `<span class="combo">` +
+      `<input class="combo-input" type="text" placeholder="Search Discord user…" autocomplete="off">` +
+      `<div class="combo-list"></div>` +
+    `</span>` +
+    `<button class="btn-sm btn-link-cancel" title="Cancel">✕</button>`;
+  existing.replaceWith(wrapper);
+
+  const input   = wrapper.querySelector('.combo-input');
+  const list    = wrapper.querySelector('.combo-list');
+  const cancelBtn = wrapper.querySelector('.btn-link-cancel');
+
+  const revert = () => {
+    const link = document.createElement('span');
+    link.className = 'attend-link';
+    link.title = 'Link to Discord user';
+    link.onclick = () => linkPlayer(characterName);
+    link.textContent = 'Link';
+    wrapper.replaceWith(link);
+  };
+  cancelBtn.addEventListener('click', revert);
+
+  // Render the filtered member rows (or a status message).
+  const MAX_ROWS = 100;
+  function renderList(query) {
+    if (guildMembers === null) {
+      list.innerHTML = `<div class="combo-empty">Member list unavailable — enable the Server Members Intent for the bot.</div>`;
+      return;
+    }
+    const q = query.trim().toLowerCase();
+    const matches = guildMembers.filter(m => {
+      if (!q) return true;
+      if (m.displayName.toLowerCase().includes(q)) return true;
+      return (m.characters || []).some(c => c.toLowerCase().includes(q));
+    });
+    if (matches.length === 0) {
+      list.innerHTML = `<div class="combo-empty">No matching users</div>`;
+      return;
+    }
+    const shown = matches.slice(0, MAX_ROWS);
+    list.innerHTML = shown.map(m => {
+      const chars = (m.characters || []);
+      const sub = chars.length > 0 ? ` <span class="combo-chars">(${chars.map(c => esc(c)).join(', ')})</span>` : '';
+      return `<div class="combo-row" data-id="${escAttr(m.discordId)}" data-tag="${escAttr(m.displayName)}">${esc(m.displayName)}${sub}</div>`;
+    }).join('') +
+    (matches.length > shown.length ? `<div class="combo-empty">${matches.length - shown.length} more… keep typing</div>` : '');
+  }
+
+  list.addEventListener('click', async (e) => {
+    const row = e.target.closest('.combo-row');
+    if (!row) return;
+    const discordId  = row.dataset.id;
+    const discordTag = row.dataset.tag;
+    if (!discordId) return;
+    input.disabled = true;
+    try {
+      await submitLink(characterName, discordId, discordTag);
+      // On success the attendance list re-renders and this node is gone.
+    } catch (err) {
+      input.disabled = false;
+      alert(err.message || 'Failed to link character');
+    }
+  });
+
+  let filterTimer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(() => renderList(input.value), 80);
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') revert(); });
+
+  // Load the roster (cached after first fetch) and show it immediately.
+  list.innerHTML = `<div class="combo-empty">Loading…</div>`;
+  await fetchGuildMembers();
+  renderList('');
+  input.focus();
 };
 
 window.attendAction = async function(name, action) {

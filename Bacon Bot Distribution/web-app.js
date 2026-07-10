@@ -508,6 +508,17 @@ async function handleRequest(req, res) {
       }
     }
 
+    // ── GET /api/guild-members ─────────────────────────────────
+    if (req.method === 'GET' && route === '/api/guild-members') {
+      if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });
+      try {
+        const result = await apiGet(`${serverUrl}/guild-members`, apiKey);
+        return json(result.status, result.body);
+      } catch (err) {
+        return json(502, { error: err.message });
+      }
+    }
+
     // ── GET /api/voice-channels ────────────────────────────────────
     if (req.method === 'GET' && route === '/api/voice-channels') {
       if (!apiKey) return json(500, { error: 'API_KEY not configured in .env' });

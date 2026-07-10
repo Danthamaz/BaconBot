@@ -615,9 +615,57 @@ textarea:focus { outline: none; border-color: var(--accent); }
 
 .link-inline {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   margin-left: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Type-to-filter Discord user picker (in normal flow so the live-scroll
+   container scrolls it into view rather than clipping a floating dropdown). */
+.combo {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.combo-input {
+  width: 100%;
+  font-size: 11px;
+  padding: 3px 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  font-family: inherit;
+}
+.combo-input:focus { outline: none; }
+.combo-input:disabled { opacity: 0.5; }
+.combo-list {
+  margin-top: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.combo-list:empty { display: none; }
+.combo-row {
+  padding: 4px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.combo-row:hover { background: var(--accent); color: #fff; }
+.combo-chars { color: var(--text-dim); font-size: 10px; }
+.combo-row:hover .combo-chars { color: #fff; }
+.combo-empty {
+  padding: 4px 6px;
+  font-size: 10px;
+  color: var(--text-dim);
 }
 
 .link-select {
