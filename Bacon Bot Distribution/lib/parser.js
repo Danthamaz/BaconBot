@@ -51,14 +51,42 @@ function normalizeZone(name) {
 }
 
 /**
+ * Damerau-Levenshtein edit distance (substitution/insertion/deletion +
+ * adjacent transposition). Used to tolerate EQ's minor zone-name spelling
+ * drift between the zone-entry message and the /who footer — e.g. entry
+ * "Kael Drakkel" vs /who "Kael Drakkal", or the "Grieg's"/"Greig's" swap.
+ */
+function damerauLevenshtein(a, b) {
+  const la = a.length, lb = b.length;
+  const d = Array.from({ length: la + 1 }, () => new Array(lb + 1).fill(0));
+  for (let i = 0; i <= la; i++) d[i][0] = i;
+  for (let j = 0; j <= lb; j++) d[0][j] = j;
+  for (let i = 1; i <= la; i++) {
+    for (let j = 1; j <= lb; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[la][lb];
+}
+
+/**
  * Check whether a zone name matches any of the user-supplied filters.
  * Uses case-insensitive substring matching in both directions so that
- * "fungus" matches "Fungus Grove" and vice versa.
+ * "fungus" matches "Fungus Grove" and vice versa, plus a 1-edit fuzzy
+ * fallback (only for names >= 6 chars, to stay unambiguous) that absorbs
+ * EQ's inconsistent zone spellings so attendance isn't silently dropped.
  */
 function zoneMatchesFilters(zoneName, filters) {
   if (!zoneName || !filters.length) return false;
   const norm = normalizeZone(zoneName);
-  return filters.some(f => norm.includes(f) || f.includes(norm));
+  return filters.some(f =>
+    norm.includes(f) || f.includes(norm) ||
+    (Math.min(norm.length, f.length) >= 6 && damerauLevenshtein(norm, f) <= 1),
+  );
 }
 
 // ── Auto-parse: detect raid sessions automatically ─────────────────────────
@@ -75,7 +103,7 @@ const APPROVED_ZONES = [
   "Kedge Keep", "Nagafen's Lair", 'Permafrost', "Veeshan's Peak",
   'Timorous Deep', 'Dreadlands', 'Chardok', 'Dragon Necropolis',
   'Kael Drakkel', 'Temple of Veeshan', 'Thurgadin', 'Akheva Ruins',
-  "Greig's End", 'Acrylia Caverns', 'Ssraeshza Temple', 'Umbral Plains',
+  "Grieg's End", 'Acrylia Caverns', 'Ssraeshza Temple', 'Umbral Plains',
   'Vex Thal', 'The Deep',
 ];
 const APPROVED_ZONE_FILTERS = APPROVED_ZONES.map(normalizeZone);
