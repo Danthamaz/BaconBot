@@ -1,8 +1,11 @@
 .env
 Bacon Bot Distribution/.env
 node_modules/
-raid_data.db
-raid_data.db-shm
-raid_data.db-wal
+*.db
+*.db-shm
+*.db-wal
+*.db.bak
 seed-learnings.json
-quarm-cache.db
+live-session.json
+*.zip
+bash.exe.stackdump
