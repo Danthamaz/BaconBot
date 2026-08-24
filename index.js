@@ -135,10 +135,13 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 const ALLOWED_CHANNEL = process.env.CHANNEL_ID || null;
 
 // Channels where unpinned messages are auto-deleted after 5 minutes
-// botOnly: true = only delete messages from this bot
-const AUTO_DELETE_CHANNELS = [
-  { id: '1476650458918555680', botOnly: false },
-];
+// (comma-separated channel IDs; append ":bot" to an ID to only delete this bot's messages)
+const AUTO_DELETE_CHANNELS = (process.env.AUTO_DELETE_CHANNEL_IDS || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+  .map(entry => {
+    const [id, flag] = entry.split(':');
+    return { id, botOnly: flag === 'bot' };
+  });
 
 client.on('interactionCreate', async interaction => {
   // Handle autocomplete interactions
@@ -151,7 +154,9 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   // Force ephemeral replies in specific channels
-  const EPHEMERAL_CHANNELS = new Set(['1464353128022278154']);
+  const EPHEMERAL_CHANNELS = new Set(
+    (process.env.EPHEMERAL_CHANNEL_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
+  );
   if (EPHEMERAL_CHANNELS.has(interaction.channelId)) {
     const origReply = interaction.reply.bind(interaction);
     const origDefer = interaction.deferReply.bind(interaction);

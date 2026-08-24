@@ -23,6 +23,7 @@ const {
   getCharsForDiscordId,
   getDiscordInfoForChar,
 } = require('../lib/db');
+const { isOfficer } = require('../lib/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -104,8 +105,13 @@ module.exports = {
         });
       }
 
-      // Only allow unlinking your own characters, unless linking someone else's
-      // (no special permission check here — add role checks if desired)
+      // Only the character's owner or an officer can unlink it
+      if (existing.discord_id !== interaction.user.id && !isOfficer(interaction.member)) {
+        return interaction.reply({
+          content: `❌ **${charName}** belongs to <@${existing.discord_id}> — only they or an officer can unlink it.`,
+          flags: 64,
+        });
+      }
       unlinkCharacter(charName);
 
       return interaction.reply(

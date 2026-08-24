@@ -9,3 +9,5 @@ seed-learnings.json
 live-session.json
 *.zip
 bash.exe.stackdump
+.claude/settings.local.json
+.claude/handoff.json

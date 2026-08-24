@@ -2,16 +2,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../lib/db');
-
-// ── Officer role check ──────────────────────────────────────────────────
-
-const OFFICER_ROLE_IDS = (process.env.OFFICER_ROLE_IDS || '')
-  .split(',').map(s => s.trim()).filter(Boolean);
-
-function isOfficer(member) {
-  if (OFFICER_ROLE_IDS.length === 0) return true; // no roles configured = unrestricted
-  return OFFICER_ROLE_IDS.some(id => member.roles.cache.has(id));
-}
+const { isOfficer } = require('../lib/permissions');
 
 // ── Duration formatting ──────────────────────────────────────────────────
 

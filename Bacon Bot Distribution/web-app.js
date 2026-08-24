@@ -124,11 +124,13 @@ const MIME = {
 };
 
 function serveStatic(req, res) {
-  let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
+  const pubDir = path.join(__dirname, 'public');
+  let filePath = path.join(pubDir, req.url === '/' ? 'index.html' : req.url);
   filePath = path.normalize(filePath);
 
-  // Prevent directory traversal
-  if (!filePath.startsWith(path.join(__dirname, 'public'))) {
+  // Prevent directory traversal (path.relative catches sibling-dir prefix matches too)
+  const rel = path.relative(pubDir, filePath);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
     res.writeHead(403);
     res.end('Forbidden');
     return;

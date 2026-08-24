@@ -63,7 +63,9 @@ npm run start            # start the bot
 | `ALERT_CHANNEL_ID`      | no       | Channel for unlinked-player / valuable-loot alerts            |
 | `TOD_CHANNEL_ID`        | no       | Channel for boss time-of-death spawn alerts                   |
 | `BANK_CHANNEL_ID`       | no       | Extra channel where `/bank` is allowed                        |
-| `OFFICER_ROLE_IDS`      | no       | Comma-separated role IDs allowed to write to the guild bank and PvP targets. **If unset, those actions are open to everyone.** |
+| `OFFICER_ROLE_IDS`      | no       | Comma-separated role IDs treated as officers (raid edit/delete, bank writes, PvP targets, unlinking others' characters). Members with the Manage Server permission always qualify. |
+| `AUTO_DELETE_CHANNEL_IDS` | no     | Comma-separated channel IDs where unpinned messages auto-delete after 5 minutes (append `:bot` to an ID to only delete the bot's own messages) |
+| `EPHEMERAL_CHANNEL_IDS` | no       | Comma-separated channel IDs where all bot replies are forced ephemeral |
 | `API_KEY`               | no       | Shared secret for the local REST API. If unset, the API server does not start. Use a long random string. |
 | `API_PORT`              | no       | REST API port (default 3001)                                  |
 
@@ -75,7 +77,7 @@ commit is not enough once the repo is public.
 
 | Command       | What it does                                                          |
 | ------------- | --------------------------------------------------------------------- |
-| `/raids`      | List, inspect, edit, and delete recorded raids                        |
+| `/raids`      | List, inspect, edit, and delete recorded raids (edit/delete are officer-only) |
 | `/attendance` | Attendance for a raid, or full history for a player (all alts)        |
 | `/loot`       | Loot by raid, by player, or search by item name                       |
 | `/player`     | Link/unlink characters to Discord users; `chars`, `whois` lookups     |

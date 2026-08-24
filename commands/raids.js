@@ -7,6 +7,7 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getRaids, getRaidCount, getRaid, updateRaid, deleteRaid } = require('../lib/db');
+const { isOfficer } = require('../lib/permissions');
 
 function parseDate(str) {
   let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
@@ -157,6 +158,9 @@ module.exports = {
 
     // ── /raids edit ──────────────────────────────────────────────────────────
     if (sub === 'edit') {
+      if (!isOfficer(interaction.member)) {
+        return interaction.reply({ content: '❌ Only officers can edit raids.', flags: 64 });
+      }
       const id   = interaction.options.getInteger('id');
       const raid = getRaid(id);
       if (!raid) {
@@ -219,6 +223,9 @@ module.exports = {
 
     // ── /raids delete ────────────────────────────────────────────────────────
     if (sub === 'delete') {
+      if (!isOfficer(interaction.member)) {
+        return interaction.reply({ content: '❌ Only officers can delete raids.', flags: 64 });
+      }
       const id   = interaction.options.getInteger('id');
       const raid = getRaid(id);
       if (!raid) {

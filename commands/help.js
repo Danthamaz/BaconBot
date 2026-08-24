@@ -51,15 +51,6 @@ module.exports = {
         ].join('\n'),
       },
       {
-        name: '📂 /parse',
-        value: [
-          '`name zone date start_time end_time character logfile [raid_id]`',
-          'Attach your EQ log `.txt` file (25 MB Discord limit).',
-          '**Large logs:** trim to the session first using Notepad++ or:',
-          '`Select-String -Path eqlog.txt -Pattern "^\\[" | Where-Object { $_.Line -ge "[Mon Jan 01]" } | Set-Content trimmed.txt`',
-        ].join('\n'),
-      },
-      {
         name: '💀 /tod',
         value: [
           '`record mob:<name> time:<now|timestamp>` — record a Time of Death',
