@@ -76,6 +76,21 @@ module.exports = {
         ].join('\n'),
       },
       {
+        name: '👑 /sk',
+        value: [
+          '`show list:<name>` — view a suicide kings list in order',
+          '`lists` — show all suicide kings lists',
+          '`history list:<name> [limit]` — recent awards on a list',
+          '`create name:<name>` — create a new list *(officers)*',
+          '`delete list:<name>` — delete a list and its history *(officers)*',
+          '`add list:<name> character:<name>` — add to the bottom *(officers)*',
+          '`remove list:<name> character:<name>` — remove from a list *(officers)*',
+          '`award list:<name> character:<name> [item]` — winner moves to the bottom *(officers)*',
+          '`undo list:<name>` — revert the most recent award *(officers)*',
+          '`shuffle list:<name>` — randomize order for a fair start *(officers)*',
+        ].join('\n'),
+      },
+      {
         name: '🏓 /ping',
         value: [
           '`/ping` — check bot roundtrip latency, WebSocket latency, and uptime',
